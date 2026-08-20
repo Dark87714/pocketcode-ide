@@ -1,0 +1,759 @@
+import { get, set } from 'idb-keyval';
+import JSZip from 'jszip';
+import { FileItem, ProjectTemplate, ProjectMetadata } from '../types';
+import { PROJECT_TEMPLATES } from './templates';
+
+const STORAGE_KEY = 'pocketcode_workspace_files_v3';
+const BACKUP_STORAGE_KEY = 'pocketcode_workspace_backup_v3';
+const TABS_STORAGE_KEY = 'pocketcode_open_tabs_v3';
+const ACTIVE_TAB_STORAGE_KEY = 'pocketcode_active_tab_v3';
+const PROJECTS_INDEX_KEY = 'pocketcode_projects_index_v3';
+const ACTIVE_PROJECT_ID_KEY = 'pocketcode_active_project_id_v3';
+
+export function getLanguageFromFilename(filename: string): string {
+  const ext = filename.split('.').pop()?.toLowerCase() || '';
+  switch (ext) {
+    case 'js':
+    case 'jsx':
+    case 'mjs':
+      return 'javascript';
+    case 'ts':
+    case 'tsx':
+      return 'typescript';
+    case 'html':
+    case 'htm':
+      return 'html';
+    case 'css':
+      return 'css';
+    case 'json':
+      return 'json';
+    case 'py':
+      return 'python';
+    case 'md':
+    case 'markdown':
+      return 'markdown';
+    case 'sql':
+      return 'sql';
+    case 'rs':
+      return 'rust';
+    case 'go':
+      return 'go';
+    case 'cpp':
+    case 'cc':
+    case 'c':
+    case 'h':
+    case 'hpp':
+      return 'cpp';
+    case 'java':
+      return 'java';
+    case 'sh':
+    case 'bash':
+      return 'shell';
+    case 'yaml':
+    case 'yml':
+      return 'yaml';
+    case 'xml':
+    case 'svg':
+      return 'xml';
+    default:
+      return 'plaintext';
+  }
+}
+
+export class FileSystemService {
+  private files: FileItem[] = [];
+  private currentProjectId = 'default_project';
+  private currentProjectName = 'My Pocket Workspace';
+  private untitledCounter = 1;
+
+  async loadWorkspace(): Promise<FileItem[]> {
+    // 1. Check active project ID
+    const activeId = localStorage.getItem(ACTIVE_PROJECT_ID_KEY) || 'default_project';
+    this.currentProjectId = activeId;
+    const projectStorageKey = `${STORAGE_KEY}_${activeId}`;
+
+    // 2. Try IndexedDB first for active project
+    try {
+      const stored = await get<FileItem[]>(projectStorageKey);
+      if (stored && Array.isArray(stored) && stored.length > 0) {
+        this.files = stored;
+        this.saveToLocalStorage();
+        await this.syncProjectsIndex();
+        return this.files;
+      }
+    } catch (e) {
+      console.warn('Failed to load from IndexedDB, trying localStorage fallback:', e);
+    }
+
+    // 3. Try legacy storage key
+    try {
+      const stored = await get<FileItem[]>(STORAGE_KEY);
+      if (stored && Array.isArray(stored) && stored.length > 0) {
+        this.files = stored;
+        await this.saveWorkspace();
+        await this.syncProjectsIndex();
+        return this.files;
+      }
+    } catch (e) {}
+
+    // 4. Try localStorage backup fallback
+    try {
+      const backupJson = localStorage.getItem(`${BACKUP_STORAGE_KEY}_${activeId}`) || localStorage.getItem(BACKUP_STORAGE_KEY);
+      if (backupJson) {
+        const backup = JSON.parse(backupJson);
+        if (Array.isArray(backup) && backup.length > 0) {
+          this.files = backup;
+          await this.saveWorkspace();
+          await this.syncProjectsIndex();
+          return this.files;
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to load from localStorage backup:', e);
+    }
+
+    // 5. Default initial workspace
+    const initialUntitled: FileItem = {
+      id: `file_untitled_${Date.now()}`,
+      name: 'Untitled-1.js',
+      path: 'Untitled-1.js',
+      content: '// Welcome to PocketCode (VS Code Mobile)\n// Start writing code directly here, or start a New Project from the menu.\n\nconsole.log("Hello, World!");\n',
+      language: 'javascript',
+      isFolder: false
+    };
+    this.files = [initialUntitled];
+    await this.saveWorkspace();
+    await this.syncProjectsIndex();
+    return this.files;
+  }
+
+  getCurrentProjectId(): string {
+    return this.currentProjectId;
+  }
+
+  getCurrentProjectName(): string {
+    return this.currentProjectName;
+  }
+
+  async listProjects(): Promise<ProjectMetadata[]> {
+    try {
+      const stored = await get<ProjectMetadata[]>(PROJECTS_INDEX_KEY);
+      if (stored && Array.isArray(stored)) {
+        return stored;
+      }
+    } catch (e) {}
+
+    return [
+      {
+        id: this.currentProjectId,
+        name: this.currentProjectName,
+        createdAt: Date.now(),
+        lastModified: Date.now(),
+        fileCount: this.getAllFlatFiles().length,
+        description: 'Active Workspace'
+      }
+    ];
+  }
+
+  async syncProjectsIndex(): Promise<void> {
+    try {
+      const projects = await this.listProjects();
+      const existing = projects.find(p => p.id === this.currentProjectId);
+      const flatCount = this.getAllFlatFiles().length;
+
+      if (existing) {
+        existing.lastModified = Date.now();
+        existing.fileCount = flatCount;
+        existing.name = this.currentProjectName;
+      } else {
+        projects.unshift({
+          id: this.currentProjectId,
+          name: this.currentProjectName,
+          createdAt: Date.now(),
+          lastModified: Date.now(),
+          fileCount: flatCount,
+          description: 'Custom Project'
+        });
+      }
+      await set(PROJECTS_INDEX_KEY, projects);
+    } catch (e) {}
+  }
+
+  /**
+   * Create a fresh new project (blank or from template)
+   */
+  async createNewProject(
+    name: string,
+    templateId?: string,
+    initialLanguage: string = 'javascript'
+  ): Promise<{ projectId: string; files: FileItem[] }> {
+    const projectId = `proj_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
+    this.currentProjectId = projectId;
+    this.currentProjectName = name.trim() || 'New Project';
+    localStorage.setItem(ACTIVE_PROJECT_ID_KEY, projectId);
+
+    if (templateId) {
+      const template = PROJECT_TEMPLATES.find(t => t.id === templateId) || PROJECT_TEMPLATES[0];
+      this.files = this.createFilesFromTemplate(template);
+    } else {
+      const extMap: Record<string, string> = {
+        javascript: 'js',
+        typescript: 'ts',
+        python: 'py',
+        html: 'html',
+        css: 'css',
+        cpp: 'cpp',
+        rust: 'rs',
+        go: 'go',
+        java: 'java',
+        sql: 'sql'
+      };
+      const ext = extMap[initialLanguage] || 'js';
+      const starterFile: FileItem = {
+        id: `file_${Date.now()}_main`,
+        name: ext === 'py' ? 'main.py' : ext === 'html' ? 'index.html' : `main.${ext}`,
+        path: ext === 'py' ? 'main.py' : ext === 'html' ? 'index.html' : `main.${ext}`,
+        content: ext === 'py' 
+          ? `# ${name}\ndef main():\n    print("Hello from ${name}!")\n\nif __name__ == "__main__":\n    main()\n`
+          : ext === 'html'
+          ? `<!DOCTYPE html>\n<html lang="en">\n<head>\n  <meta charset="UTF-8">\n  <title>${name}</title>\n</head>\n<body>\n  <h1>${name}</h1>\n</body>\n</html>`
+          : `// ${name}\nconsole.log("Hello from ${name}!");\n`,
+        language: initialLanguage,
+        isFolder: false
+      };
+      this.files = [starterFile];
+    }
+
+    await this.saveWorkspace();
+    await this.syncProjectsIndex();
+    return { projectId, files: this.files };
+  }
+
+  /**
+   * Switch between saved projects
+   */
+  async switchProject(projectId: string): Promise<FileItem[]> {
+    this.currentProjectId = projectId;
+    localStorage.setItem(ACTIVE_PROJECT_ID_KEY, projectId);
+
+    const projects = await this.listProjects();
+    const proj = projects.find(p => p.id === projectId);
+    if (proj) {
+      this.currentProjectName = proj.name;
+    }
+
+    const projectStorageKey = `${STORAGE_KEY}_${projectId}`;
+    try {
+      const stored = await get<FileItem[]>(projectStorageKey);
+      if (stored && Array.isArray(stored)) {
+        this.files = stored;
+        return this.files;
+      }
+    } catch (e) {}
+
+    return this.loadWorkspace();
+  }
+
+  /**
+   * Delete a project
+   */
+  async deleteProject(projectId: string): Promise<void> {
+    try {
+      const projects = await this.listProjects();
+      const filtered = projects.filter(p => p.id !== projectId);
+      await set(PROJECTS_INDEX_KEY, filtered);
+      await set(`${STORAGE_KEY}_${projectId}`, null);
+      localStorage.removeItem(`${BACKUP_STORAGE_KEY}_${projectId}`);
+
+      if (this.currentProjectId === projectId) {
+        if (filtered.length > 0) {
+          await this.switchProject(filtered[0].id);
+        } else {
+          await this.createNewProject('My Pocket Workspace');
+        }
+      }
+    } catch (e) {}
+  }
+
+  /**
+   * Clone a public GitHub repository
+   */
+  async cloneGitRepository(
+    repoUrl: string,
+    onProgress?: (text: string) => void
+  ): Promise<{ projectId: string; files: FileItem[] }> {
+    onProgress?.('Parsing GitHub repository URL...');
+    const cleanUrl = repoUrl.trim().replace(/\.git$/i, '').replace(/\/+$/, '');
+    const match = cleanUrl.match(/github\.com\/([^\/]+)\/([^\/]+)/);
+    if (!match) {
+      throw new Error('Please enter a valid GitHub repository URL (e.g. https://github.com/owner/repo)');
+    }
+
+    const owner = match[1];
+    const repo = match[2];
+    const projectName = repo;
+
+    onProgress?.(`Fetching directory tree for ${owner}/${repo}...`);
+    // Try main branch first, then master
+    let treeData: any = null;
+    try {
+      const res = await fetch(`https://api.github.com/repos/${owner}/${repo}/git/trees/main?recursive=1`);
+      if (res.ok) {
+        treeData = await res.json();
+      } else {
+        const res2 = await fetch(`https://api.github.com/repos/${owner}/${repo}/git/trees/master?recursive=1`);
+        if (res2.ok) {
+          treeData = await res2.json();
+        }
+      }
+    } catch (err: any) {
+      throw new Error(`Failed to connect to GitHub API: ${err.message}`);
+    }
+
+    if (!treeData || !treeData.tree || !Array.isArray(treeData.tree)) {
+      throw new Error(`Could not load files from ${owner}/${repo}. Check if repo is public.`);
+    }
+
+    onProgress?.(`Downloading ${Math.min(treeData.tree.length, 30)} files from repository...`);
+    const newRoot: FileItem[] = [];
+    const filesToFetch = treeData.tree.filter((node: any) => node.type === 'blob').slice(0, 30);
+
+    for (let i = 0; i < filesToFetch.length; i++) {
+      const node = filesToFetch[i];
+      const filePath = node.path;
+      onProgress?.(`Downloading [${i + 1}/${filesToFetch.length}] ${filePath}...`);
+
+      let fileContent = '';
+      try {
+        const rawRes = await fetch(`https://raw.githubusercontent.com/${owner}/${repo}/HEAD/${filePath}`);
+        if (rawRes.ok) {
+          fileContent = await rawRes.text();
+        }
+      } catch (e) {}
+
+      // Add to tree hierarchy
+      const parts = filePath.split('/').filter(Boolean);
+      let currentChildren = newRoot;
+      let currentPath = '';
+
+      for (let p = 0; p < parts.length; p++) {
+        const part = parts[p];
+        const isLast = p === parts.length - 1;
+        currentPath = currentPath ? `${currentPath}/${part}` : part;
+
+        if (isLast) {
+          currentChildren.push({
+            id: `file_${currentPath.replace(/[^a-zA-Z0-9_-]/g, '_')}`,
+            name: part,
+            path: currentPath,
+            content: fileContent,
+            language: getLanguageFromFilename(part),
+            isFolder: false
+          });
+        } else {
+          let folder = currentChildren.find(item => item.isFolder && item.name === part);
+          if (!folder) {
+            folder = {
+              id: `folder_${currentPath.replace(/[^a-zA-Z0-9_-]/g, '_')}`,
+              name: part,
+              path: currentPath,
+              content: '',
+              language: '',
+              isFolder: true,
+              isExpanded: true,
+              children: []
+            };
+            currentChildren.push(folder);
+          }
+          if (!folder.children) folder.children = [];
+          currentChildren = folder.children;
+        }
+      }
+    }
+
+    const projectId = `proj_gh_${Date.now()}`;
+    this.currentProjectId = projectId;
+    this.currentProjectName = projectName;
+    this.files = newRoot;
+    localStorage.setItem(ACTIVE_PROJECT_ID_KEY, projectId);
+    await this.saveWorkspace();
+    await this.syncProjectsIndex();
+    onProgress?.(`✅ Successfully cloned ${projectName}!`);
+
+    return { projectId, files: this.files };
+  }
+
+  async createUntitledFile(customExtension = 'js'): Promise<FileItem> {
+    const filename = `Untitled-${this.untitledCounter++}.${customExtension}`;
+    const newFile: FileItem = {
+      id: `file_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      name: filename,
+      path: filename,
+      content: '',
+      language: getLanguageFromFilename(filename),
+      isFolder: false
+    };
+    this.files.push(newFile);
+    await this.saveWorkspace();
+    return newFile;
+  }
+
+  async saveWorkspace(): Promise<void> {
+    const projectStorageKey = `${STORAGE_KEY}_${this.currentProjectId}`;
+    try {
+      await set(projectStorageKey, this.files);
+      await set(STORAGE_KEY, this.files);
+    } catch (e) {
+      console.error('Failed to save to IndexedDB:', e);
+    }
+    this.saveToLocalStorage();
+  }
+
+  saveToLocalStorage(): void {
+    try {
+      localStorage.setItem(`${BACKUP_STORAGE_KEY}_${this.currentProjectId}`, JSON.stringify(this.files));
+      localStorage.setItem(BACKUP_STORAGE_KEY, JSON.stringify(this.files));
+    } catch (e) {}
+  }
+
+  createFilesFromTemplate(template: ProjectTemplate): FileItem[] {
+    const rootItems: FileItem[] = [];
+
+    Object.entries(template.files).forEach(([filepath, content]) => {
+      const parts = filepath.split('/').filter(Boolean);
+      let currentChildren = rootItems;
+      let currentPath = '';
+
+      for (let i = 0; i < parts.length; i++) {
+        const part = parts[i];
+        const isLast = i === parts.length - 1;
+        currentPath = currentPath ? `${currentPath}/${part}` : part;
+
+        if (isLast) {
+          currentChildren.push({
+            id: `file_${currentPath.replace(/[^a-zA-Z0-9_-]/g, '_')}`,
+            name: part,
+            path: currentPath,
+            content: content,
+            language: getLanguageFromFilename(part),
+            isFolder: false
+          });
+        } else {
+          let existingFolder = currentChildren.find(item => item.isFolder && item.name === part);
+          if (!existingFolder) {
+            existingFolder = {
+              id: `folder_${currentPath.replace(/[^a-zA-Z0-9_-]/g, '_')}`,
+              name: part,
+              path: currentPath,
+              content: '',
+              language: '',
+              isFolder: true,
+              isExpanded: true,
+              children: []
+            };
+            currentChildren.push(existingFolder);
+          }
+          if (!existingFolder.children) {
+            existingFolder.children = [];
+          }
+          currentChildren = existingFolder.children;
+        }
+      }
+    });
+
+    return rootItems;
+  }
+
+  async loadTemplate(templateId: string): Promise<FileItem[]> {
+    const template = PROJECT_TEMPLATES.find(t => t.id === templateId) || PROJECT_TEMPLATES[0];
+    this.files = this.createFilesFromTemplate(template);
+    await this.saveWorkspace();
+    return this.files;
+  }
+
+  getFiles(): FileItem[] {
+    return this.files;
+  }
+
+  getFileById(id: string): FileItem | undefined {
+    const findInTree = (items: FileItem[]): FileItem | undefined => {
+      for (const item of items) {
+        if (item.id === id) return item;
+        if (item.children) {
+          const res = findInTree(item.children);
+          if (res) return res;
+        }
+      }
+      return undefined;
+    };
+    return findInTree(this.files);
+  }
+
+  getFileByPath(path: string): FileItem | undefined {
+    const cleanPath = path.startsWith('/') ? path.slice(1) : path;
+    const findInTree = (items: FileItem[]): FileItem | undefined => {
+      for (const item of items) {
+        if (item.path === cleanPath || item.path === path) return item;
+        if (item.children) {
+          const res = findInTree(item.children);
+          if (res) return res;
+        }
+      }
+      return undefined;
+    };
+    return findInTree(this.files);
+  }
+
+  async createFile(
+    rawPath: string,
+    isFolder: boolean = false,
+    targetFolderId: string | null = null,
+    initialContent: string = ''
+  ): Promise<FileItem> {
+    const cleanInput = rawPath.replace(/^[/\\]+/, '').replace(/[/\\]+$/, '');
+    const parts = cleanInput.split(/[/\\]+/).filter(Boolean);
+
+    if (parts.length === 0) {
+      throw new Error('Invalid file or folder path');
+    }
+
+    let targetArray = this.files;
+    let parentPath = '';
+
+    if (targetFolderId) {
+      const targetFolder = this.getFileById(targetFolderId);
+      if (targetFolder && targetFolder.isFolder) {
+        if (!targetFolder.children) targetFolder.children = [];
+        targetArray = targetFolder.children;
+        parentPath = targetFolder.path;
+        targetFolder.isExpanded = true;
+      }
+    }
+
+    let currentChildren = targetArray;
+    let accumulatedPath = parentPath;
+
+    for (let i = 0; i < parts.length; i++) {
+      const part = parts[i];
+      const isLast = i === parts.length - 1;
+      accumulatedPath = accumulatedPath ? `${accumulatedPath}/${part}` : part;
+
+      if (isLast) {
+        const newItem: FileItem = {
+          id: `${isFolder ? 'folder' : 'file'}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+          name: part,
+          path: accumulatedPath,
+          content: isFolder ? '' : initialContent,
+          language: isFolder ? '' : getLanguageFromFilename(part),
+          isFolder,
+          isExpanded: isFolder ? true : undefined,
+          children: isFolder ? [] : undefined,
+          parentId: targetFolderId
+        };
+        currentChildren.push(newItem);
+        await this.saveWorkspace();
+        return newItem;
+      } else {
+        let existing = currentChildren.find(item => item.isFolder && item.name === part);
+        if (!existing) {
+          existing = {
+            id: `folder_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+            name: part,
+            path: accumulatedPath,
+            content: '',
+            language: '',
+            isFolder: true,
+            isExpanded: true,
+            children: []
+          };
+          currentChildren.push(existing);
+        }
+        if (!existing.children) existing.children = [];
+        existing.isExpanded = true;
+        currentChildren = existing.children;
+      }
+    }
+
+    await this.saveWorkspace();
+    return currentChildren[currentChildren.length - 1];
+  }
+
+  async createFolder(rawPath: string, targetFolderId: string | null = null): Promise<FileItem> {
+    return this.createFile(rawPath, true, targetFolderId, '');
+  }
+
+  async toggleFolder(folderId: string): Promise<boolean> {
+    return this.toggleFolderExpand(folderId);
+  }
+
+  async toggleFolderExpand(folderId: string): Promise<boolean> {
+    const folder = this.getFileById(folderId);
+    if (folder && folder.isFolder) {
+      folder.isExpanded = !folder.isExpanded;
+      await this.saveWorkspace();
+      return !!folder.isExpanded;
+    }
+    return false;
+  }
+
+  async updateFileContent(id: string, content: string): Promise<void> {
+    const file = this.getFileById(id);
+    if (file && !file.isFolder) {
+      file.content = content;
+      file.isModified = true;
+      await this.saveWorkspace();
+    }
+  }
+
+  async renameFile(id: string, newName: string): Promise<void> {
+    const file = this.getFileById(id);
+    if (file) {
+      file.name = newName;
+      const parts = file.path.split('/');
+      parts[parts.length - 1] = newName;
+      const newPath = parts.join('/');
+      file.path = newPath;
+      if (!file.isFolder) {
+        file.language = getLanguageFromFilename(newName);
+      } else {
+        const updateChildrenPaths = (parent: FileItem, prefix: string) => {
+          if (parent.children) {
+            parent.children.forEach(child => {
+              child.path = `${prefix}/${child.name}`;
+              if (child.isFolder) {
+                updateChildrenPaths(child, child.path);
+              }
+            });
+          }
+        };
+        updateChildrenPaths(file, newPath);
+      }
+      await this.saveWorkspace();
+    }
+  }
+
+  async deleteFile(id: string): Promise<void> {
+    const deleteFromList = (items: FileItem[]): boolean => {
+      const idx = items.findIndex(item => item.id === id);
+      if (idx !== -1) {
+        items.splice(idx, 1);
+        return true;
+      }
+      for (const item of items) {
+        if (item.children && deleteFromList(item.children)) {
+          return true;
+        }
+      }
+      return false;
+    };
+
+    deleteFromList(this.files);
+    await this.saveWorkspace();
+  }
+
+  getAllFlatFiles(): FileItem[] {
+    const flat: FileItem[] = [];
+    const traverse = (items: FileItem[]) => {
+      for (const item of items) {
+        if (!item.isFolder) {
+          flat.push(item);
+        }
+        if (item.children && item.children.length > 0) {
+          traverse(item.children);
+        }
+      }
+    };
+    traverse(this.files);
+    return flat;
+  }
+
+  async exportWorkspaceZip(): Promise<Blob> {
+    const zip = new JSZip();
+    const flatFiles = this.getAllFlatFiles();
+    flatFiles.forEach(file => {
+      zip.file(file.path, file.content);
+    });
+    return await zip.generateAsync({ type: 'blob' });
+  }
+
+  async importWorkspaceZip(file: File): Promise<FileItem[]> {
+    const zip = new JSZip();
+    const contents = await zip.loadAsync(file);
+    const newRoot: FileItem[] = [];
+
+    for (const [relativePath, zipEntry] of Object.entries(contents.files)) {
+      if (!zipEntry.dir) {
+        const text = await zipEntry.async('string');
+        const parts = relativePath.split('/').filter(Boolean);
+        let currentChildren = newRoot;
+        let currentPath = '';
+
+        for (let i = 0; i < parts.length; i++) {
+          const part = parts[i];
+          const isLast = i === parts.length - 1;
+          currentPath = currentPath ? `${currentPath}/${part}` : part;
+
+          if (isLast) {
+            currentChildren.push({
+              id: `file_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+              name: part,
+              path: currentPath,
+              content: text,
+              language: getLanguageFromFilename(part),
+              isFolder: false
+            });
+          } else {
+            let folder = currentChildren.find(item => item.isFolder && item.name === part);
+            if (!folder) {
+              folder = {
+                id: `folder_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+                name: part,
+                path: currentPath,
+                content: '',
+                language: '',
+                isFolder: true,
+                isExpanded: true,
+                children: []
+              };
+              currentChildren.push(folder);
+            }
+            if (!folder.children) folder.children = [];
+            currentChildren = folder.children;
+          }
+        }
+      }
+    }
+
+    const projectName = file.name.replace(/\.zip$/i, '');
+    this.currentProjectId = `proj_zip_${Date.now()}`;
+    this.currentProjectName = projectName;
+    this.files = newRoot;
+    localStorage.setItem(ACTIVE_PROJECT_ID_KEY, this.currentProjectId);
+    await this.saveWorkspace();
+    await this.syncProjectsIndex();
+    return this.files;
+  }
+
+  // Persistent Tab Session Management
+  saveOpenTabs(tabs: { fileId: string; name: string; path: string; language: string }[], activeFileId: string | null): void {
+    try {
+      localStorage.setItem(TABS_STORAGE_KEY, JSON.stringify(tabs));
+      if (activeFileId) {
+        localStorage.setItem(ACTIVE_TAB_STORAGE_KEY, activeFileId);
+      }
+    } catch (e) {}
+  }
+
+  getSavedOpenTabs(): { tabs: any[]; activeFileId: string | null } {
+    try {
+      const tabsJson = localStorage.getItem(TABS_STORAGE_KEY);
+      const activeId = localStorage.getItem(ACTIVE_TAB_STORAGE_KEY);
+      const tabs = tabsJson ? JSON.parse(tabsJson) : [];
+      return { tabs: Array.isArray(tabs) ? tabs : [], activeFileId: activeId };
+    } catch (e) {
+      return { tabs: [], activeFileId: null };
+    }
+  }
+}
+
+export const fileSystemService = new FileSystemService();
