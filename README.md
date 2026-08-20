@@ -1,4 +1,4 @@
-# 📱 PocketCode IDE
+#  PocketCode IDE
 
 <div align="center">
 
@@ -18,19 +18,18 @@
 
 ---
 
-## 🚀 Features
+## Features
 
-- ⚡ **Desktop-Grade Code Editor**: Powered by Monaco Editor with syntax highlighting, auto-completion, error linting, code formatting, and multiple tabs.
-- ⌨️ **Custom Mobile Keybar**: Rapid access to programming symbols (`{`, `}`, `[`, `]`, `(`, `)`, `;`, `=>`, `"`, `'`, tabs, undo/redo) designed specifically for touch devices.
-- 🐍 **In-Browser & Local Execution**: Run Python code directly on-device using Pyodide (Wasm) and preview HTML/CSS/JS in real-time.
-- 🤖 **AI Assistant & Copilot Panel**: Built-in coding companion for intelligent code explanation, refactoring, and bug fixes.
-- 📦 **Extensions & Themes**: Support for customized themes, snippet packs, and developer tools.
-- 🗂️ **Integrated File System & Git**: Full file explorer, project templates, search & replace, and git source control interface.
-- 📱 **Native Android Integration**: Built using Capacitor for full on-device hardware acceleration and responsive mobile UI.
+-  **Desktop-Grade Code Editor**: Powered by Monaco Editor with syntax highlighting, auto-completion, error linting, code formatting, and multiple tabs.
+-  **Custom Mobile Keybar**: Rapid access to programming symbols (`{`, `}`, `[`, `]`, `(`, `)`, `;`, `=>`, `"`, `'`, tabs, undo/redo) designed specifically for touch devices.
+-  **In-Browser & Local Execution**: Run Python code directly on-device using Pyodide (Wasm) and preview HTML/CSS/JS in real-time.
+-  **Extensions & Themes**: Support for customized themes, snippet packs, and developer tools.
+-  **Integrated File System & Git**: Full file explorer, project templates, search & replace, and git source control interface.
+-  **Native Android Integration**: Built using Capacitor for full on-device hardware acceleration and responsive mobile UI.
 
 ---
 
-## 📥 Direct APK Download & Installation
+##  Direct APK Download & Installation
 
 ### 1. Download the APK
 Click the button below to download the latest `.apk` package:
@@ -44,7 +43,7 @@ Click the button below to download the latest `.apk` package:
 
 ---
 
-## 🛠️ Development Setup
+##  Development Setup
 
 ### Prerequisites
 - [Node.js](https://nodejs.org/) (v18 or newer)
@@ -81,5 +80,5 @@ npx cap open android
 
 ---
 
-## 📄 License
+## License
 This project is open source and available under the [MIT License](LICENSE).
