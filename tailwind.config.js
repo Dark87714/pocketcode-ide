@@ -29,6 +29,9 @@ export default {
       fontFamily: {
         mono: ['"Fira Code"', 'Consolas', '"Courier New"', 'monospace'],
         sans: ['Inter', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Roboto', 'sans-serif'],
+      },
+      screens: {
+        'xs': '420px',
       }
     },
   },
