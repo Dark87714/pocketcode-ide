@@ -72,45 +72,48 @@ export class FileSystemService {
     this.currentProjectId = activeId;
     const projectStorageKey = `${STORAGE_KEY}_${activeId}`;
 
-    // 2. Try IndexedDB first for active project
-    try {
-      const stored = await get<FileItem[]>(projectStorageKey);
-      if (stored && Array.isArray(stored) && stored.length > 0) {
-        this.files = stored;
-        this.saveToLocalStorage();
-        await this.syncProjectsIndex();
-        return this.files;
-      }
-    } catch (e) {
-      console.warn('Failed to load from IndexedDB, trying localStorage fallback:', e);
-    }
-
-    // 3. Try legacy storage key
-    try {
-      const stored = await get<FileItem[]>(STORAGE_KEY);
-      if (stored && Array.isArray(stored) && stored.length > 0) {
-        this.files = stored;
-        await this.saveWorkspace();
-        await this.syncProjectsIndex();
-        return this.files;
-      }
-    } catch (e) {}
-
-    // 4. Try localStorage backup fallback
+    // 2. Read from localStorage synchronous cache first for instant 0ms startup
     try {
       const backupJson = localStorage.getItem(`${BACKUP_STORAGE_KEY}_${activeId}`) || localStorage.getItem(BACKUP_STORAGE_KEY);
       if (backupJson) {
         const backup = JSON.parse(backupJson);
         if (Array.isArray(backup) && backup.length > 0) {
           this.files = backup;
-          await this.saveWorkspace();
-          await this.syncProjectsIndex();
+          // Background reconcile with IndexedDB non-blockingly
+          get<FileItem[]>(projectStorageKey).then(stored => {
+            if (stored && Array.isArray(stored) && stored.length > 0) {
+              this.files = stored;
+            }
+          }).catch(() => {});
+          this.syncProjectsIndex().catch(() => {});
           return this.files;
         }
       }
+    } catch (e) {}
+
+    // 3. Try IndexedDB if localStorage was not cached
+    try {
+      const stored = await get<FileItem[]>(projectStorageKey);
+      if (stored && Array.isArray(stored) && stored.length > 0) {
+        this.files = stored;
+        this.saveToLocalStorage();
+        this.syncProjectsIndex().catch(() => {});
+        return this.files;
+      }
     } catch (e) {
-      console.warn('Failed to load from localStorage backup:', e);
+      console.warn('Failed to load from IndexedDB:', e);
     }
+
+    // 4. Try legacy storage key
+    try {
+      const stored = await get<FileItem[]>(STORAGE_KEY);
+      if (stored && Array.isArray(stored) && stored.length > 0) {
+        this.files = stored;
+        this.saveWorkspace().catch(() => {});
+        this.syncProjectsIndex().catch(() => {});
+        return this.files;
+      }
+    } catch (e) {}
 
     // 5. Default initial workspace
     const initialUntitled: FileItem = {
@@ -252,6 +255,54 @@ export class FileSystemService {
     } catch (e) {}
 
     return this.loadWorkspace();
+  }
+
+  /**
+   * Rename a saved project
+   */
+  async renameProject(projectId: string, newName: string): Promise<void> {
+    const cleanName = newName.trim();
+    if (!cleanName) return;
+
+    if (this.currentProjectId === projectId) {
+      this.currentProjectName = cleanName;
+    }
+
+    const projects = await this.listProjects();
+    const existing = projects.find(p => p.id === projectId);
+    if (existing) {
+      existing.name = cleanName;
+      existing.lastModified = Date.now();
+      await set(PROJECTS_INDEX_KEY, projects);
+    }
+  }
+
+  /**
+   * Duplicate an existing project
+   */
+  async duplicateProject(projectId: string): Promise<{ projectId: string; files: FileItem[] }> {
+    const projects = await this.listProjects();
+    const existing = projects.find(p => p.id === projectId);
+    const baseName = existing ? existing.name : 'Project';
+    const newName = `${baseName} (Copy)`;
+
+    let sourceFiles: FileItem[] = [];
+    if (projectId === this.currentProjectId) {
+      sourceFiles = JSON.parse(JSON.stringify(this.files));
+    } else {
+      const stored = await get<FileItem[]>(`${STORAGE_KEY}_${projectId}`);
+      sourceFiles = stored ? JSON.parse(JSON.stringify(stored)) : [];
+    }
+
+    const newProjectId = `proj_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
+    this.currentProjectId = newProjectId;
+    this.currentProjectName = newName;
+    this.files = sourceFiles;
+    localStorage.setItem(ACTIVE_PROJECT_ID_KEY, newProjectId);
+
+    await this.saveWorkspace(true);
+    await this.syncProjectsIndex();
+    return { projectId: newProjectId, files: this.files };
   }
 
   /**
@@ -398,15 +449,29 @@ export class FileSystemService {
     return newFile;
   }
 
-  async saveWorkspace(): Promise<void> {
-    const projectStorageKey = `${STORAGE_KEY}_${this.currentProjectId}`;
-    try {
-      await set(projectStorageKey, this.files);
-      await set(STORAGE_KEY, this.files);
-    } catch (e) {
-      console.error('Failed to save to IndexedDB:', e);
-    }
+  private saveTimeout: any = null;
+
+  async saveWorkspace(immediate: boolean = false): Promise<void> {
     this.saveToLocalStorage();
+
+    const doSave = async () => {
+      const projectStorageKey = `${STORAGE_KEY}_${this.currentProjectId}`;
+      try {
+        await set(projectStorageKey, this.files);
+        await set(STORAGE_KEY, this.files);
+      } catch (e) {
+        console.error('Failed to save to IndexedDB:', e);
+      }
+    };
+
+    if (immediate) {
+      await doSave();
+    } else {
+      if (this.saveTimeout) clearTimeout(this.saveTimeout);
+      this.saveTimeout = setTimeout(() => {
+        doSave();
+      }, 50);
+    }
   }
 
   saveToLocalStorage(): void {
@@ -467,7 +532,7 @@ export class FileSystemService {
   async loadTemplate(templateId: string): Promise<FileItem[]> {
     const template = PROJECT_TEMPLATES.find(t => t.id === templateId) || PROJECT_TEMPLATES[0];
     this.files = this.createFilesFromTemplate(template);
-    await this.saveWorkspace();
+    await this.saveWorkspace(true);
     return this.files;
   }
 
@@ -511,9 +576,7 @@ export class FileSystemService {
     initialContent: string = ''
   ): Promise<FileItem> {
     const cleanInput = rawPath.replace(/^[/\\]+/, '').replace(/[/\\]+$/, '');
-    const parts = cleanInput.split(/[/\\]+/).filter(Boolean);
-
-    if (parts.length === 0) {
+    if (!cleanInput) {
       throw new Error('Invalid file or folder path');
     }
 
@@ -528,6 +591,17 @@ export class FileSystemService {
         parentPath = targetFolder.path;
         targetFolder.isExpanded = true;
       }
+    }
+
+    // If cleanInput starts with parentPath, strip it so we don't duplicate path hierarchy
+    let relativePath = cleanInput;
+    if (parentPath && (relativePath === parentPath || relativePath.startsWith(parentPath + '/'))) {
+      relativePath = relativePath.slice(parentPath.length).replace(/^[/\\]+/, '');
+    }
+
+    const parts = relativePath.split(/[/\\]+/).filter(Boolean);
+    if (parts.length === 0) {
+      throw new Error('Invalid file or folder path');
     }
 
     let currentChildren = targetArray;
@@ -551,7 +625,7 @@ export class FileSystemService {
           parentId: targetFolderId
         };
         currentChildren.push(newItem);
-        await this.saveWorkspace();
+        this.saveWorkspace(false);
         return newItem;
       } else {
         let existing = currentChildren.find(item => item.isFolder && item.name === part);
@@ -574,7 +648,7 @@ export class FileSystemService {
       }
     }
 
-    await this.saveWorkspace();
+    this.saveWorkspace(false);
     return currentChildren[currentChildren.length - 1];
   }
 
@@ -674,6 +748,104 @@ export class FileSystemService {
       zip.file(file.path, file.content);
     });
     return await zip.generateAsync({ type: 'blob' });
+  }
+
+  async downloadProjectZip(projectId?: string): Promise<void> {
+    const targetId = projectId || this.currentProjectId;
+    let filesToZip = this.files;
+    let projectName = this.currentProjectName;
+
+    if (projectId && projectId !== this.currentProjectId) {
+      const projectStorageKey = `${STORAGE_KEY}_${projectId}`;
+      const stored = await get<FileItem[]>(projectStorageKey);
+      if (stored && Array.isArray(stored)) {
+        filesToZip = stored;
+      }
+      const projects = await this.listProjects();
+      const p = projects.find(item => item.id === projectId);
+      if (p) projectName = p.name;
+    }
+
+    const zip = new JSZip();
+    const flat: FileItem[] = [];
+    const traverse = (items: FileItem[]) => {
+      for (const item of items) {
+        if (!item.isFolder) {
+          flat.push(item);
+        }
+        if (item.children && item.children.length > 0) {
+          traverse(item.children);
+        }
+      }
+    };
+    traverse(filesToZip);
+    flat.forEach(file => {
+      zip.file(file.path, file.content);
+    });
+
+    const blob = await zip.generateAsync({ type: 'blob' });
+    const cleanName = (projectName || 'project').replace(/[^a-zA-Z0-9_-]/g, '_');
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${cleanName}.zip`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
+  async importDirectoryFiles(files: { path: string; content: string }[], folderName: string): Promise<FileItem[]> {
+    const newRoot: FileItem[] = [];
+
+    for (const file of files) {
+      const parts = file.path.split('/').filter(Boolean);
+      let currentChildren = newRoot;
+      let currentPath = '';
+
+      for (let i = 0; i < parts.length; i++) {
+        const part = parts[i];
+        const isLast = i === parts.length - 1;
+        currentPath = currentPath ? `${currentPath}/${part}` : part;
+
+        if (isLast) {
+          currentChildren.push({
+            id: `file_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+            name: part,
+            path: currentPath,
+            content: file.content,
+            language: getLanguageFromFilename(part),
+            isFolder: false
+          });
+        } else {
+          let folder = currentChildren.find(item => item.isFolder && item.name === part);
+          if (!folder) {
+            folder = {
+              id: `folder_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+              name: part,
+              path: currentPath,
+              content: '',
+              language: '',
+              isFolder: true,
+              isExpanded: true,
+              children: []
+            };
+            currentChildren.push(folder);
+          }
+          if (!folder.children) folder.children = [];
+          currentChildren = folder.children;
+        }
+      }
+    }
+
+    const projectId = `proj_folder_${Date.now()}`;
+    this.currentProjectId = projectId;
+    this.currentProjectName = folderName;
+    this.files = newRoot;
+    localStorage.setItem(ACTIVE_PROJECT_ID_KEY, this.currentProjectId);
+    await this.saveWorkspace(true);
+    await this.syncProjectsIndex();
+    return this.files;
   }
 
   async importWorkspaceZip(file: File): Promise<FileItem[]> {

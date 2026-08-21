@@ -1,11 +1,10 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, Suspense, lazy } from 'react';
 import { 
   FileItem, TabItem, ActiveSidebarTab, ActiveBottomTab, 
   EditorSettings, DiagnosticProblem 
 } from './types';
 import { fileSystemService } from './services/fileSystem';
 import { themeService } from './services/themeService';
-import { pyodideService } from './services/pyodideService';
 import { universalRunnerService } from './services/universalRunner';
 import { formatterService } from './services/formatterService';
 import { TopBar } from './components/Header/TopBar';
@@ -14,17 +13,19 @@ import { SidebarDrawer } from './components/Sidebar/SidebarDrawer';
 import { EditorTabs } from './components/Editor/EditorTabs';
 import { Breadcrumbs } from './components/Editor/Breadcrumbs';
 import { CodeEditor } from './components/Editor/CodeEditor';
-import { DiffEditor } from './components/Editor/DiffEditor';
-import { MediaViewer } from './components/Editor/MediaViewer';
 import { TouchFindReplace } from './components/Editor/TouchFindReplace';
 import { MobileKeybar } from './components/Editor/MobileKeybar';
 import { BottomDrawer } from './components/Panels/BottomDrawer';
 import { StatusBar } from './components/Footer/StatusBar';
-import { LivePreview } from './components/PreviewModal/LivePreview';
-import { CommandPalette } from './components/CommandPalette/CommandPalette';
-import { TemplatesModal } from './components/Modals/TemplatesModal';
-import { NewProjectModal } from './components/Modals/NewProjectModal';
 import { WelcomeTab } from './components/Editor/WelcomeTab';
+
+// Fast dynamic imports for heavy modals and viewers
+const LivePreview = lazy(() => import('./components/PreviewModal/LivePreview').then(m => ({ default: m.LivePreview })));
+const CommandPalette = lazy(() => import('./components/CommandPalette/CommandPalette').then(m => ({ default: m.CommandPalette })));
+const TemplatesModal = lazy(() => import('./components/Modals/TemplatesModal').then(m => ({ default: m.TemplatesModal })));
+const NewProjectModal = lazy(() => import('./components/Modals/NewProjectModal').then(m => ({ default: m.NewProjectModal })));
+const DiffEditor = lazy(() => import('./components/Editor/DiffEditor').then(m => ({ default: m.DiffEditor })));
+const MediaViewer = lazy(() => import('./components/Editor/MediaViewer').then(m => ({ default: m.MediaViewer })));
 
 const DEFAULT_SETTINGS: EditorSettings = {
   fontSize: 14,
@@ -89,6 +90,7 @@ export function App() {
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
   const [cursorPosition, setCursorPosition] = useState({ line: 1, col: 1 });
   const [saveStatus, setSaveStatus] = useState<'saved' | 'saving'>('saved');
+  const [currentProjectName, setCurrentProjectName] = useState(() => fileSystemService.getCurrentProjectName());
 
   // New Feature States: Split Editor, Touch Find/Replace, Visual Diff
   const [isSplitEditor, setIsSplitEditor] = useState(false);
@@ -150,6 +152,7 @@ export function App() {
       // 2. Load workspace files
       const loadedFiles = await fileSystemService.loadWorkspace();
       setFiles(loadedFiles);
+      setCurrentProjectName(fileSystemService.getCurrentProjectName());
 
       // 3. Restore previously open tabs and active file (Strictly deduplicated)
       const savedSession = fileSystemService.getSavedOpenTabs();
@@ -260,24 +263,43 @@ export function App() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [files, activeTabId, isSplitEditor]);
 
-  // Terminal Integration Event Listeners
+  // Terminal & Workspace Integration Event Listeners
   useEffect(() => {
     const handleOpenFileEvent = (e: Event) => {
-      const customEvent = e as CustomEvent<FileItem>;
+      const customEvent = e as CustomEvent<any>;
       if (customEvent.detail) {
         setFiles([...fileSystemService.getFiles()]);
-        openFile(customEvent.detail);
+        let targetFile: FileItem | undefined;
+        if (typeof customEvent.detail === 'string') {
+          targetFile = fileSystemService.getFileByPath(customEvent.detail) || fileSystemService.getAllFlatFiles().find(f => f.name === customEvent.detail);
+        } else if (customEvent.detail.id && customEvent.detail.name) {
+          targetFile = customEvent.detail;
+        } else if (customEvent.detail.path) {
+          targetFile = fileSystemService.getFileByPath(customEvent.detail.path) || fileSystemService.getAllFlatFiles().find(f => f.name === customEvent.detail.path);
+        }
+        if (targetFile && !targetFile.isFolder) {
+          openFile(targetFile);
+        }
       }
     };
+
     const handleTogglePreviewEvent = () => {
       setIsPreviewOpen(true);
     };
 
+    const handleWorkspaceChanged = () => {
+      setFiles([...fileSystemService.getFiles()]);
+      setCurrentProjectName(fileSystemService.getCurrentProjectName());
+    };
+
     window.addEventListener('pocketcode:open-file', handleOpenFileEvent);
     window.addEventListener('pocketcode:toggle-preview', handleTogglePreviewEvent);
+    window.addEventListener('pocketcode:workspace-changed', handleWorkspaceChanged);
+
     return () => {
       window.removeEventListener('pocketcode:open-file', handleOpenFileEvent);
       window.removeEventListener('pocketcode:toggle-preview', handleTogglePreviewEvent);
+      window.removeEventListener('pocketcode:workspace-changed', handleWorkspaceChanged);
     };
   }, []);
 
@@ -370,18 +392,10 @@ export function App() {
   };
 
   const handleCreateFile = async (name: string, isFolder = false, targetFolderId: string | null = null) => {
-    let targetPath = name;
-    if (targetFolderId) {
-      const folder = fileSystemService.getFileById(targetFolderId);
-      if (folder) {
-        targetPath = `${folder.path}/${name}`;
-      }
-    }
-
     if (isFolder) {
-      await fileSystemService.createFolder(targetPath);
+      await fileSystemService.createFolder(name, targetFolderId);
     } else {
-      const newFile = await fileSystemService.createFile(targetPath);
+      const newFile = await fileSystemService.createFile(name, false, targetFolderId);
       openFile(newFile);
     }
     setFiles([...fileSystemService.getFiles()]);
@@ -413,6 +427,7 @@ export function App() {
   const handleSelectTemplate = async (template: any) => {
     const loadedFiles = await fileSystemService.loadTemplate(template);
     setFiles(loadedFiles);
+    setCurrentProjectName(template.name || 'Template Project');
     const flat = fileSystemService.getAllFlatFiles();
     const entry = flat.find(f => f.name === template.entryFile) || flat.find(f => !f.isFolder) || flat[0];
     if (entry && !entry.isFolder) {
@@ -422,6 +437,7 @@ export function App() {
   };
 
   const handleProjectCreated = (projectName: string) => {
+    setCurrentProjectName(projectName);
     const loadedFiles = fileSystemService.getFiles();
     setFiles([...loadedFiles]);
     setTabs([]);
@@ -433,7 +449,7 @@ export function App() {
   };
 
   const handleExportZip = async () => {
-    await fileSystemService.exportWorkspaceZip();
+    await fileSystemService.downloadProjectZip();
   };
 
   const handleReplaceInFile = (fileId: string, search: string, replace: string) => {
@@ -655,6 +671,7 @@ export function App() {
         isSidebarOpen={isSidebarOpen}
         isTerminalOpen={isTerminalOpen}
         activeFileName={activeFile?.name}
+        projectName={currentProjectName}
       />
 
       {/* Main Layout Area */}
@@ -682,6 +699,7 @@ export function App() {
           files={files}
           activeFileId={activeTab ? activeTab.fileId : null}
           settings={settings}
+          projectName={currentProjectName}
           onClose={() => setIsSidebarOpen(false)}
           onOpenFile={openFile}
           onCreateFile={handleCreateFile}
@@ -731,15 +749,17 @@ export function App() {
         <div className="flex-1 flex flex-col overflow-hidden relative bg-[#1e1e1e]">
           {/* Visual Diff View or Normal Editor Area */}
           {diffState.isOpen ? (
-            <DiffEditor
-              originalContent={diffState.original}
-              modifiedContent={diffState.modified}
-              originalFileName={diffState.originalFileName}
-              modifiedFileName={diffState.modifiedFileName}
-              language={diffState.language}
-              settings={settings}
-              onClose={() => setDiffState(s => ({ ...s, isOpen: false }))}
-            />
+            <Suspense fallback={<div className="flex-1 bg-[#1e1e1e]" />}>
+              <DiffEditor
+                originalContent={diffState.original}
+                modifiedContent={diffState.modified}
+                originalFileName={diffState.originalFileName}
+                modifiedFileName={diffState.modifiedFileName}
+                language={diffState.language}
+                settings={settings}
+                onClose={() => setDiffState(s => ({ ...s, isOpen: false }))}
+              />
+            </Suspense>
           ) : (
             <div className={`flex-1 flex ${isSplitEditor ? 'flex-col sm:flex-row' : 'flex-col'} overflow-hidden relative`}>
               {/* PRIMARY PANE */}
@@ -769,7 +789,9 @@ export function App() {
 
                   {activeFile ? (
                     isMediaFile(activeFile.name) ? (
-                      <MediaViewer file={activeFile} />
+                      <Suspense fallback={<div className="flex-1 bg-[#1e1e1e]" />}>
+                        <MediaViewer file={activeFile} />
+                      </Suspense>
                     ) : (
                       <CodeEditor
                         content={activeFile.content}
@@ -826,7 +848,9 @@ export function App() {
                   <div className="flex-1 overflow-hidden relative">
                     {splitActiveFile ? (
                       isMediaFile(splitActiveFile.name) ? (
-                        <MediaViewer file={splitActiveFile} />
+                        <Suspense fallback={<div className="flex-1 bg-[#1e1e1e]" />}>
+                          <MediaViewer file={splitActiveFile} />
+                        </Suspense>
                       ) : (
                         <CodeEditor
                           content={splitActiveFile.content}
@@ -906,50 +930,66 @@ export function App() {
       )}
 
       {/* Live Preview Modal */}
-      <LivePreview
-        isOpen={isPreviewOpen}
-        files={files}
-        onClose={() => setIsPreviewOpen(false)}
-      />
+      {isPreviewOpen && (
+        <Suspense fallback={null}>
+          <LivePreview
+            isOpen={isPreviewOpen}
+            files={files}
+            onClose={() => setIsPreviewOpen(false)}
+          />
+        </Suspense>
+      )}
 
       {/* Command Palette */}
-      <CommandPalette
-        isOpen={isCommandPaletteOpen}
-        files={files}
-        onClose={() => setIsCommandPaletteOpen(false)}
-        onNewFile={() => handleCreateUntitled('js')}
-        onRunPreview={handleRunPreview}
-        onOpenTerminal={() => {
-          setIsTerminalOpen(true);
-          setActiveBottomTab('terminal');
-        }}
-        onOpenTemplates={() => setIsTemplatesModalOpen(true)}
-        onOpenNewProject={() => setIsNewProjectModalOpen(true)}
-        onOpenFile={openFile}
-        onExportZip={handleExportZip}
-        onToggleMinimap={() => setSettings(s => ({ ...s, minimap: !s.minimap }))}
-        onToggleWordWrap={() => setSettings(s => ({ ...s, wordWrap: s.wordWrap === 'on' ? 'off' : 'on' }))}
-        onSwitchTheme={(themeId) => setSettings(s => ({ ...s, theme: themeId }))}
-        onUndo={handleUndo}
-        onRedo={handleRedo}
-        onFormatDocument={handleFormatDocument}
-        onToggleSplitEditor={handleToggleSplitEditor}
-        onToggleFindReplace={() => setIsFindReplaceOpen(!isFindReplaceOpen)}
-      />
+      {isCommandPaletteOpen && (
+        <Suspense fallback={null}>
+          <CommandPalette
+            isOpen={isCommandPaletteOpen}
+            files={files}
+            onClose={() => setIsCommandPaletteOpen(false)}
+            onNewFile={() => handleCreateUntitled('js')}
+            onRunPreview={handleRunPreview}
+            onOpenTerminal={() => {
+              setIsTerminalOpen(true);
+              setActiveBottomTab('terminal');
+            }}
+            onOpenTemplates={() => setIsTemplatesModalOpen(true)}
+            onOpenNewProject={() => setIsNewProjectModalOpen(true)}
+            onOpenFile={openFile}
+            onExportZip={handleExportZip}
+            onToggleMinimap={() => setSettings(s => ({ ...s, minimap: !s.minimap }))}
+            onToggleWordWrap={() => setSettings(s => ({ ...s, wordWrap: s.wordWrap === 'on' ? 'off' : 'on' }))}
+            onSwitchTheme={(themeId) => setSettings(s => ({ ...s, theme: themeId }))}
+            onUndo={handleUndo}
+            onRedo={handleRedo}
+            onFormatDocument={handleFormatDocument}
+            onToggleSplitEditor={handleToggleSplitEditor}
+            onToggleFindReplace={() => setIsFindReplaceOpen(!isFindReplaceOpen)}
+          />
+        </Suspense>
+      )}
 
       {/* Templates Modal */}
-      <TemplatesModal
-        isOpen={isTemplatesModalOpen}
-        onClose={() => setIsTemplatesModalOpen(false)}
-        onSelectTemplate={handleSelectTemplate}
-      />
+      {isTemplatesModalOpen && (
+        <Suspense fallback={null}>
+          <TemplatesModal
+            isOpen={isTemplatesModalOpen}
+            onClose={() => setIsTemplatesModalOpen(false)}
+            onSelectTemplate={handleSelectTemplate}
+          />
+        </Suspense>
+      )}
 
       {/* Start New Project Modal */}
-      <NewProjectModal
-        isOpen={isNewProjectModalOpen}
-        onClose={() => setIsNewProjectModalOpen(false)}
-        onProjectCreated={handleProjectCreated}
-      />
+      {isNewProjectModalOpen && (
+        <Suspense fallback={null}>
+          <NewProjectModal
+            isOpen={isNewProjectModalOpen}
+            onClose={() => setIsNewProjectModalOpen(false)}
+            onProjectCreated={handleProjectCreated}
+          />
+        </Suspense>
+      )}
     </div>
   );
 }

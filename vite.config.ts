@@ -9,6 +9,19 @@ export default defineConfig({
     host: true,
   },
   build: {
-    chunkSizeWarningLimit: 3000,
+    target: 'es2020',
+    minify: 'esbuild',
+    cssCodeSplit: true,
+    chunkSizeWarningLimit: 1500,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'react-core': ['react', 'react-dom'],
+          'ui-icons': ['lucide-react'],
+          'storage-tools': ['idb-keyval', 'jszip'],
+          'monaco-core': ['monaco-editor', '@monaco-editor/react']
+        }
+      }
+    }
   }
 })

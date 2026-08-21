@@ -21,6 +21,7 @@ const COMMON_COMMANDS = [
 ];
 
 export const TerminalPanel: React.FC = () => {
+  const [activeProjectName, setActiveProjectName] = useState(() => fileSystemService.getCurrentProjectName() || 'project');
   const [tabs, setTabs] = useState<TerminalTab[]>([
     {
       id: 'term_1',
@@ -29,9 +30,10 @@ export const TerminalPanel: React.FC = () => {
         {
           id: 'init_welcome',
           type: 'system',
-          content: `🌟 Welcome to PocketCode Developer Terminal (Unix/POSIX v2.5)
-Type 'help' to see all 80+ terminal commands, or 'man <command>' for syntax.
-Try: 'python main.py', 'pip install numpy', 'npm i lodash', 'git status', or 'neofetch'.`
+          content: `🌟 PocketCode Project Terminal (Unix/POSIX v2.5)
+📁 Active Project: ${fileSystemService.getCurrentProjectName()}
+Type 'help' for commands, 'run' to execute project, 'code <file>' to edit, or 'export' for .ZIP.
+Try: 'run', 'preview', 'python main.py', 'npm run dev', 'git status', 'neofetch'.`
         }
       ]
     }
@@ -93,8 +95,17 @@ Try: 'python main.py', 'pip install numpy', 'npm i lodash', 'git status', or 'ne
         }, 50);
       }
     };
+
+    const handleWorkspaceChanged = () => {
+      setActiveProjectName(fileSystemService.getCurrentProjectName() || 'project');
+    };
+
     window.addEventListener('pocketcode:terminal-run-command', handleRunCmdEvent);
-    return () => window.removeEventListener('pocketcode:terminal-run-command', handleRunCmdEvent);
+    window.addEventListener('pocketcode:workspace-changed', handleWorkspaceChanged);
+    return () => {
+      window.removeEventListener('pocketcode:terminal-run-command', handleRunCmdEvent);
+      window.removeEventListener('pocketcode:workspace-changed', handleWorkspaceChanged);
+    };
   }, []);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -169,18 +180,18 @@ Try: 'python main.py', 'pip install numpy', 'npm i lodash', 'git status', or 'ne
   };
 
   const quickCommands = [
-    { label: '❓ help', cmd: 'help' },
+    { label: '⚡ run', cmd: 'run' },
+    { label: '🌐 preview', cmd: 'preview' },
+    { label: '📦 export zip', cmd: 'export' },
     { label: '📁 ls -la', cmd: 'ls -la' },
     { label: '🌳 tree', cmd: 'tree' },
-    { label: '🐍 python', cmd: 'python main.py' },
-    { label: '📦 pip list', cmd: 'pip list' },
-    { label: '📦 npm i lodash', cmd: 'npm i lodash' },
+    { label: '🐍 python', cmd: 'python' },
+    { label: '🟨 node', cmd: 'node' },
     { label: '🐙 git status', cmd: 'git status' },
-    { label: '📊 git log', cmd: 'git log --oneline' },
-    { label: '⚡ ps / top', cmd: 'top' },
-    { label: '🚀 neofetch', cmd: 'neofetch' },
-    { label: '🐮 cowsay', cmd: 'cowsay Welcome to PocketCode!' },
-    { label: '🔮 fortune', cmd: 'fortune' },
+    { label: '🚀 npm run dev', cmd: 'npm run dev' },
+    { label: '📦 pip list', cmd: 'pip list' },
+    { label: '💻 neofetch', cmd: 'neofetch' },
+    { label: '❓ help', cmd: 'help' },
     { label: '🧹 clear', cmd: 'clear' }
   ];
 
@@ -290,7 +301,7 @@ Try: 'python main.py', 'pip install numpy', 'npm i lodash', 'git status', or 'ne
         className="flex items-center px-2.5 py-1.5 bg-[#141414] border-t border-[#2d2d2d] gap-1.5 shrink-0"
       >
         <span className="text-emerald-400 font-bold text-[11px] whitespace-nowrap">
-          guest@pocketcode:<span className="text-sky-400">{currentPromptDir}</span>$
+          user@mobile:<span className="text-sky-400">~/{activeProjectName}{currentPromptDir === '/workspace' ? '' : currentPromptDir.replace(/^\/workspace/, '')}</span>$
         </span>
         <input
           ref={inputRef}
@@ -298,7 +309,7 @@ Try: 'python main.py', 'pip install numpy', 'npm i lodash', 'git status', or 'ne
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder="Type command (e.g. 'help', 'ls -la', 'python main.py', 'git status')..."
+          placeholder="Type command (e.g. 'run', 'code app.js', 'ls -la', 'python main.py', 'git status')..."
           disabled={isExecuting}
           className="flex-1 bg-transparent text-white font-mono text-xs focus:outline-none placeholder-[#555555]"
         />

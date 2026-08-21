@@ -1,7 +1,8 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { 
   FilePlus, FolderPlus, ChevronRight, ChevronDown, 
-  Trash2, Edit2, Folder, FolderOpen, Layers, Plus, FileCode, UploadCloud, Copy
+  Trash2, Edit2, Folder, FolderOpen, Layers, Plus, FileCode, UploadCloud, Copy,
+  Check, X
 } from 'lucide-react';
 import { FileItem } from '../../types';
 import { getTabIcon } from '../Editor/EditorTabs';
@@ -10,6 +11,7 @@ import { fileSystemService } from '../../services/fileSystem';
 interface ExplorerProps {
   files: FileItem[];
   activeFileId: string | null;
+  projectName?: string;
   onOpenFile: (file: FileItem) => void;
   onCreateFile: (name: string, isFolder?: boolean, targetFolderId?: string | null) => void;
   onDeleteFile: (fileId: string) => void;
@@ -24,6 +26,7 @@ interface ExplorerProps {
 export const Explorer: React.FC<ExplorerProps> = ({
   files,
   activeFileId,
+  projectName,
   onOpenFile,
   onCreateFile,
   onDeleteFile,
@@ -47,31 +50,49 @@ export const Explorer: React.FC<ExplorerProps> = ({
   // Drag and drop state
   const [isDraggingOver, setIsDraggingOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const createInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (isCreatingFile) {
+      setTimeout(() => {
+        createInputRef.current?.focus();
+        createInputRef.current?.select();
+      }, 20);
+    }
+  }, [isCreatingFile, creatingTargetFolderId]);
 
   const startCreate = (isFolder: boolean, folderId: string | null = null) => {
+    if (folderId) {
+      const folder = fileSystemService.getFileById(folderId);
+      if (folder && !folder.isExpanded) {
+        onToggleFolder(folderId);
+      }
+    }
     setIsCreatingFolder(isFolder);
     setCreatingTargetFolderId(folderId);
     setIsCreatingFile(true);
     setNewInputName('');
   };
 
-  const handleCreateSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (newInputName.trim()) {
-      onCreateFile(newInputName.trim(), isCreatingFolder, creatingTargetFolderId);
-      setNewInputName('');
-      setIsCreatingFile(false);
-      setCreatingTargetFolderId(null);
+  const handleCreateSubmit = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    const name = newInputName.trim();
+    if (name) {
+      onCreateFile(name, isCreatingFolder, creatingTargetFolderId);
     }
+    setNewInputName('');
+    setIsCreatingFile(false);
+    setCreatingTargetFolderId(null);
   };
 
-  const handleRenameSubmit = (fileId: string, e: React.FormEvent) => {
-    e.preventDefault();
-    if (editName.trim()) {
-      onRenameFile(fileId, editName.trim());
-      setEditingId(null);
-      setEditName('');
+  const handleRenameSubmit = (fileId: string, e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    const name = editName.trim();
+    if (name) {
+      onRenameFile(fileId, name);
     }
+    setEditingId(null);
+    setEditName('');
   };
 
   // --- Recursive Folder / File Drag & Drop Import Handler ---
@@ -170,17 +191,49 @@ export const Explorer: React.FC<ExplorerProps> = ({
           <form
             key={item.id}
             onSubmit={(e) => handleRenameSubmit(item.id, e)}
-            className="px-2 py-1 bg-[#1e1e1e] border border-[#007acc] rounded flex items-center gap-1.5"
+            className="px-2 py-1 bg-[#1e1e1e] border border-[#007acc] rounded flex items-center gap-1.5 shadow-sm"
             style={{ paddingLeft: `${Math.max(8, level * 14 + 8)}px` }}
           >
             <input
               type="text"
               value={editName}
               onChange={(e) => setEditName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') {
+                  setEditingId(null);
+                  setEditName('');
+                }
+              }}
               autoFocus
               className="bg-transparent text-white text-xs w-full focus:outline-none font-mono"
-              onBlur={() => setEditingId(null)}
+              onBlur={() => {
+                if (editName.trim() && editName.trim() !== item.name) {
+                  onRenameFile(item.id, editName.trim());
+                }
+                setEditingId(null);
+                setEditName('');
+              }}
             />
+            <button
+              type="submit"
+              onMouseDown={(e) => e.preventDefault()}
+              className="p-1 text-emerald-400 hover:text-emerald-300"
+              title="Confirm rename"
+            >
+              <Check size={12} />
+            </button>
+            <button
+              type="button"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => {
+                setEditingId(null);
+                setEditName('');
+              }}
+              className="p-1 text-rose-400 hover:text-rose-300"
+              title="Cancel"
+            >
+              <X size={12} />
+            </button>
           </form>
         );
       }
@@ -224,44 +277,48 @@ export const Explorer: React.FC<ExplorerProps> = ({
               {isFolder && (
                 <>
                   <button
+                    onMouseDown={(e) => e.preventDefault()}
                     onClick={(e) => {
                       e.stopPropagation();
                       startCreate(false, item.id);
                     }}
-                    className="p-1 hover:text-white hover:bg-[#333333] rounded"
+                    className="p-1 hover:text-white hover:bg-[#333333] rounded transition-colors"
                     title="New File Inside"
                   >
-                    <FilePlus size={12} />
+                    <FilePlus size={13} />
                   </button>
                   <button
+                    onMouseDown={(e) => e.preventDefault()}
                     onClick={(e) => {
                       e.stopPropagation();
                       startCreate(true, item.id);
                     }}
-                    className="p-1 hover:text-white hover:bg-[#333333] rounded"
+                    className="p-1 hover:text-white hover:bg-[#333333] rounded transition-colors"
                     title="New Folder Inside"
                   >
-                    <FolderPlus size={12} />
+                    <FolderPlus size={13} />
                   </button>
                 </>
               )}
               <button
+                onMouseDown={(e) => e.preventDefault()}
                 onClick={(e) => {
                   e.stopPropagation();
                   setEditingId(item.id);
                   setEditName(item.name);
                 }}
-                className="p-1 hover:text-white hover:bg-[#333333] rounded"
+                className="p-1 hover:text-white hover:bg-[#333333] rounded transition-colors"
                 title="Rename"
               >
                 <Edit2 size={12} />
               </button>
               <button
+                onMouseDown={(e) => e.preventDefault()}
                 onClick={(e) => {
                   e.stopPropagation();
                   onDeleteFile(item.id);
                 }}
-                className="p-1 hover:text-rose-400 hover:bg-[#333333] rounded"
+                className="p-1 hover:text-rose-400 hover:bg-[#333333] rounded transition-colors"
                 title="Delete"
               >
                 <Trash2 size={12} />
@@ -270,24 +327,56 @@ export const Explorer: React.FC<ExplorerProps> = ({
           </div>
 
           {/* Folder Inline Creator Input */}
-          {isFolder && isExpanded && isTargetForNew && (
+          {isFolder && isTargetForNew && (
             <form
               onSubmit={handleCreateSubmit}
               style={{ paddingLeft: `${(level + 1) * 14 + 8}px` }}
-              className="py-1 bg-[#1e1e1e] border-l-2 border-[#007acc] my-0.5 flex items-center gap-1.5 pr-2"
+              className="py-1 bg-[#1e1e1e] border-l-2 border-[#007acc] my-0.5 flex items-center gap-1.5 pr-2 animate-fade-in"
             >
               <span className="text-sky-400 text-xs">{isCreatingFolder ? '📁' : '📄'}</span>
               <input
+                ref={createInputRef}
                 type="text"
                 value={newInputName}
                 onChange={(e) => setNewInputName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Escape') {
+                    setIsCreatingFile(false);
+                    setCreatingTargetFolderId(null);
+                  }
+                }}
                 placeholder={isCreatingFolder ? 'folder-name' : 'filename.ext'}
                 autoFocus
                 className="bg-transparent text-white text-xs w-full focus:outline-none font-mono"
                 onBlur={() => {
-                  if (!newInputName.trim()) setIsCreatingFile(false);
+                  if (newInputName.trim()) {
+                    onCreateFile(newInputName.trim(), isCreatingFolder, creatingTargetFolderId);
+                    setNewInputName('');
+                  }
+                  setIsCreatingFile(false);
+                  setCreatingTargetFolderId(null);
                 }}
               />
+              <button
+                type="submit"
+                onMouseDown={(e) => e.preventDefault()}
+                className="p-0.5 text-emerald-400 hover:text-emerald-300"
+                title="Create (Enter)"
+              >
+                <Check size={13} />
+              </button>
+              <button
+                type="button"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => {
+                  setIsCreatingFile(false);
+                  setCreatingTargetFolderId(null);
+                }}
+                className="p-0.5 text-rose-400 hover:text-rose-300"
+                title="Cancel (Esc)"
+              >
+                <X size={13} />
+              </button>
             </form>
           )}
 
@@ -325,9 +414,17 @@ export const Explorer: React.FC<ExplorerProps> = ({
 
       {/* Header Bar */}
       <div className="flex items-center justify-between px-3 py-2 border-b border-[#333333] font-bold text-[11px] uppercase tracking-wider text-[#999999]">
-        <span>EXPLORER : WORKSPACE</span>
+        <button
+          onClick={onOpenNewProject || onOpenTemplates}
+          className="flex items-center gap-1.5 hover:text-white transition-colors truncate max-w-[140px] text-left"
+          title={`Active Project: ${projectName || 'WORKSPACE'} (Click to switch/manage)`}
+        >
+          <span className="text-amber-400 font-mono text-xs">📁</span>
+          <span className="truncate">{projectName || 'WORKSPACE'}</span>
+        </button>
         <div className="flex items-center gap-1">
           <button
+            onMouseDown={(e) => e.preventDefault()}
             onClick={onOpenNewProject || onOpenTemplates}
             className="p-1 rounded hover:bg-[#007acc] hover:text-white transition-colors text-sky-400"
             title="Start New Project (Blank, Template, Git Clone)"
@@ -335,6 +432,7 @@ export const Explorer: React.FC<ExplorerProps> = ({
             <Plus size={15} />
           </button>
           <button
+            onMouseDown={(e) => e.preventDefault()}
             onClick={() => fileInputRef.current?.click()}
             className="p-1 rounded hover:bg-[#333333] hover:text-white transition-colors"
             title="Upload Files or Folder"
@@ -342,6 +440,7 @@ export const Explorer: React.FC<ExplorerProps> = ({
             <UploadCloud size={14} />
           </button>
           <button
+            onMouseDown={(e) => e.preventDefault()}
             onClick={() => startCreate(false, null)}
             className="p-1 rounded hover:bg-[#333333] hover:text-white transition-colors"
             title="New File at Root"
@@ -349,6 +448,7 @@ export const Explorer: React.FC<ExplorerProps> = ({
             <FilePlus size={14} />
           </button>
           <button
+            onMouseDown={(e) => e.preventDefault()}
             onClick={() => startCreate(true, null)}
             className="p-1 rounded hover:bg-[#333333] hover:text-white transition-colors"
             title="New Folder at Root"
@@ -356,6 +456,7 @@ export const Explorer: React.FC<ExplorerProps> = ({
             <FolderPlus size={14} />
           </button>
           <button
+            onMouseDown={(e) => e.preventDefault()}
             onClick={onOpenTemplates}
             className="p-1 rounded hover:bg-[#333333] hover:text-white transition-colors"
             title="Templates"
@@ -375,19 +476,51 @@ export const Explorer: React.FC<ExplorerProps> = ({
 
       {/* Root Inline File/Folder Creator Input */}
       {isCreatingFile && creatingTargetFolderId === null && (
-        <form onSubmit={handleCreateSubmit} className="px-3 py-1.5 bg-[#1e1e1e] border-b border-[#007acc] flex items-center gap-1.5">
+        <form onSubmit={handleCreateSubmit} className="px-3 py-1.5 bg-[#1e1e1e] border-b border-[#007acc] flex items-center gap-1.5 animate-fade-in">
           <span className="text-sky-400 font-mono text-[11px]">{isCreatingFolder ? '📁' : '📄'}</span>
           <input
+            ref={createInputRef}
             type="text"
             value={newInputName}
             onChange={(e) => setNewInputName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') {
+                setIsCreatingFile(false);
+                setCreatingTargetFolderId(null);
+              }
+            }}
             placeholder={isCreatingFolder ? 'folder-name (e.g. src/components)' : 'filename.ext (e.g. src/App.tsx)'}
             autoFocus
             className="bg-transparent text-white text-xs w-full focus:outline-none font-mono"
             onBlur={() => {
-              if (!newInputName.trim()) setIsCreatingFile(false);
+              if (newInputName.trim()) {
+                onCreateFile(newInputName.trim(), isCreatingFolder, creatingTargetFolderId);
+                setNewInputName('');
+              }
+              setIsCreatingFile(false);
+              setCreatingTargetFolderId(null);
             }}
           />
+          <button
+            type="submit"
+            onMouseDown={(e) => e.preventDefault()}
+            className="p-0.5 text-emerald-400 hover:text-emerald-300"
+            title="Create (Enter)"
+          >
+            <Check size={13} />
+          </button>
+          <button
+            type="button"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => {
+              setIsCreatingFile(false);
+              setCreatingTargetFolderId(null);
+            }}
+            className="p-0.5 text-rose-400 hover:text-rose-300"
+            title="Cancel (Esc)"
+          >
+            <X size={13} />
+          </button>
         </form>
       )}
 

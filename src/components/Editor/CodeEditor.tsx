@@ -1,7 +1,11 @@
 import React, { useRef, useEffect } from 'react';
-import Editor, { OnMount, OnChange } from '@monaco-editor/react';
+import Editor, { OnMount, OnChange, loader } from '@monaco-editor/react';
+import * as monaco from 'monaco-editor';
 import { EditorSettings } from '../../types';
 import { THEMES } from '../../services/themeService';
+
+// Configure Monaco to use local bundled instance instead of CDN network calls
+loader.config({ monaco });
 
 interface CodeEditorProps {
   content: string;

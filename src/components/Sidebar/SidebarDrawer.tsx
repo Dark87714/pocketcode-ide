@@ -15,6 +15,7 @@ interface SidebarDrawerProps {
   files: FileItem[];
   activeFileId: string | null;
   settings: EditorSettings;
+  projectName?: string;
   onClose: () => void;
   onOpenFile: (file: FileItem) => void;
   onCreateFile: (name: string, isFolder?: boolean, targetFolderId?: string | null) => void;
@@ -42,6 +43,7 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
   files,
   activeFileId,
   settings,
+  projectName,
   onClose,
   onOpenFile,
   onCreateFile,
@@ -171,6 +173,7 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
               <Explorer
                 files={files}
                 activeFileId={activeFileId}
+                projectName={projectName}
                 onOpenFile={(f) => {
                   onOpenFile(f);
                   // On mobile/landscape, close sidebar on file selection to give maximum code space

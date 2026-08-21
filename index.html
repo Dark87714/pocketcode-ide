@@ -15,16 +15,32 @@
     
     <title>PocketCode Studio — Mobile IDE (VS Code for Mobile)</title>
     
-    <!-- Google Fonts -->
+    <!-- Google Fonts with optimized display -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600;700&family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
-    
-    <!-- Pyodide for In-Browser Python Execution -->
-    <script src="https://cdn.jsdelivr.net/pyodide/v0.26.2/full/pyodide.js" defer></script>
+    <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   </head>
   <body class="bg-[#1e1e1e] text-[#cccccc] font-sans antialiased overflow-hidden select-none touch-manipulation h-[100dvh] w-screen">
-    <div id="root" class="h-full w-full flex flex-col"></div>
+    <div id="root" class="h-full w-full flex flex-col">
+      <!-- Instant Startup Splash Skeleton (Removed once React hydrates) -->
+      <div id="pocketcode-splash" style="display:flex;flex-direction:column;height:100%;width:100%;background:#1e1e1e;color:#cccccc;align-items:center;justify-content:center;font-family:system-ui,-apple-system,sans-serif;">
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">
+          <div style="width:36px;height:36px;background:linear-gradient(135deg,#007acc,#00bc7d);border-radius:8px;display:flex;align-items:center;justify-content:center;font-weight:bold;color:white;font-size:20px;box-shadow:0 8px 24px rgba(0,122,204,0.35);">
+            { }
+          </div>
+          <span style="font-size:18px;font-weight:700;letter-spacing:0.5px;color:#ffffff;">PocketCode Studio</span>
+        </div>
+        <div style="width:140px;height:3px;background:#2d2d2d;border-radius:3px;overflow:hidden;position:relative;">
+          <div style="width:50%;height:100%;background:linear-gradient(90deg,#007acc,#38bdf8);position:absolute;border-radius:3px;animation:p-loader 1s infinite ease-in-out;"></div>
+        </div>
+        <style>
+          @keyframes p-loader {
+            0% { left: -50%; }
+            100% { left: 100%; }
+          }
+        </style>
+      </div>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

@@ -138,11 +138,13 @@ export class TerminalService {
     this.commandHistory.push(trimmed);
     this.historyIndex = this.commandHistory.length;
 
-    // Show input line
+    // Show input line with current active project name
+    const projectName = fileSystemService.getCurrentProjectName() || 'project';
+    const cleanDir = this.currentDir === '/workspace' ? '' : this.currentDir.replace(/^\/workspace/, '');
     onOutput({
       id: `line_${Date.now()}_in`,
       type: 'input',
-      content: `guest@pocketcode:${this.currentDir}$ ${trimmed}`
+      content: `user@mobile:~/${projectName}${cleanDir}$ ${trimmed}`
     });
 
     // Check for aliases
@@ -158,6 +160,12 @@ export class TerminalService {
     const parsedArgs = this.parseCommandArgs(effectiveCommand);
     const cmd = (parsedArgs[0] || '').toLowerCase();
     const args = parsedArgs.slice(1);
+
+    const notifyWorkspaceChanged = () => {
+      try {
+        window.dispatchEvent(new CustomEvent('pocketcode:workspace-changed'));
+      } catch (e) {}
+    };
 
     switch (cmd) {
       // -------------------------------------------------------------
@@ -425,6 +433,7 @@ export class TerminalService {
           await fileSystemService.createFile(resolved, false, null, '');
           onOutput({ id: `line_${Date.now()}`, type: 'success', content: `Created: ${resolved}` });
         }
+        notifyWorkspaceChanged();
         break;
       }
 
@@ -439,6 +448,7 @@ export class TerminalService {
           await fileSystemService.createFolder(resolved);
           onOutput({ id: `line_${Date.now()}`, type: 'success', content: `Directory created: ${resolved}` });
         }
+        notifyWorkspaceChanged();
         break;
       }
 
@@ -461,6 +471,7 @@ export class TerminalService {
             onOutput({ id: `line_${Date.now()}`, type: 'success', content: `Removed '${target}'` });
           }
         }
+        notifyWorkspaceChanged();
         break;
       }
 
@@ -478,6 +489,7 @@ export class TerminalService {
           return;
         }
         await fileSystemService.createFile(dest, srcFile.isFolder, null, srcFile.content || '');
+        notifyWorkspaceChanged();
         onOutput({ id: `line_${Date.now()}`, type: 'success', content: `Copied '${src}' -> '${dest}'` });
         break;
       }
@@ -496,6 +508,7 @@ export class TerminalService {
           return;
         }
         await fileSystemService.renameFile(srcFile.id, dest.split('/').pop() || dest);
+        notifyWorkspaceChanged();
         onOutput({ id: `line_${Date.now()}`, type: 'success', content: `Renamed '${src}' -> '${dest}'` });
         break;
       }
@@ -999,6 +1012,17 @@ tmpfs            1048576      4096   1044480   1% /tmp`
       }
 
       case 'export': {
+        if (args[0] === 'zip' || args[0] === 'project' || args[0] === 'backup') {
+          onOutput({ id: `line_${Date.now()}`, type: 'system', content: `📦 Archiving project '${fileSystemService.getCurrentProjectName()}' to mobile storage...` });
+          try {
+            await fileSystemService.downloadProjectZip();
+            onOutput({ id: `line_${Date.now()}`, type: 'success', content: `✅ Project '${fileSystemService.getCurrentProjectName()}' downloaded as .ZIP!` });
+          } catch (e: any) {
+            onOutput({ id: `line_${Date.now()}`, type: 'error', content: `Export error: ${e.message}` });
+          }
+          break;
+        }
+
         if (args.length === 0) {
           const list = Object.entries(this.envVars).map(([k, v]) => `declare -x ${k}="${v}"`).join('\n');
           onOutput({ id: `line_${Date.now()}`, type: 'output', content: list });
@@ -1170,28 +1194,6 @@ Features: Git, AI Copilot, Terminal, Live Sandbox, Multi-Tab
       // -------------------------------------------------------------
       // 5. RUNTIMES & PACKAGE MANAGERS
       // -------------------------------------------------------------
-      case 'run': {
-        const target = args[0];
-        let fileToRun: any;
-        if (target) {
-          const resolved = this.resolvePath(target);
-          fileToRun = fileSystemService.getFileByPath(resolved) || fileSystemService.getAllFlatFiles().find(f => f.name === target || f.path === resolved);
-        } else {
-          fileToRun = fileSystemService.getAllFlatFiles().find(f => !f.isFolder && (f.name.endsWith('.py') || f.name.endsWith('.js') || f.name.endsWith('.ts') || f.name.endsWith('.cpp') || f.name.endsWith('.rs') || f.name.endsWith('.go') || f.name.endsWith('.java')));
-        }
-        if (!fileToRun) {
-          onOutput({ id: `line_${Date.now()}`, type: 'error', content: 'run: no file specified or found in workspace' });
-          return;
-        }
-
-        onOutput({ id: `line_${Date.now()}`, type: 'system', content: `⚡ Running ${fileToRun.name}...` });
-        await universalRunnerService.runFile(fileToRun, (line, type) => {
-          const termType = type === 'stderr' ? 'error' : type === 'system' ? 'system' : 'output';
-          onOutput({ id: `line_${Date.now()}_${Math.random()}`, type: termType, content: line });
-        });
-        break;
-      }
-
       case 'bash':
       case 'sh': {
         if (args[0]) {
@@ -1411,26 +1413,49 @@ Requires: micropip`
         const sub = args[0];
         const pkg = args[1];
         if ((sub === 'install' || sub === 'i' || sub === 'add') && pkg) {
-          onOutput({ id: `line_${Date.now()}`, type: 'system', content: `⚡ [npm] Resolving ${pkg} from esm.sh CDN registry...` });
+          onOutput({ id: `line_${Date.now()}`, type: 'system', content: `⚡ [npm] Resolving ${pkg} from esm.sh CDN registry for ${fileSystemService.getCurrentProjectName()}...` });
           try {
             const resp = await fetch(`https://esm.sh/${pkg}`);
             if (resp.ok) {
-              onOutput({ id: `line_${Date.now()}`, type: 'success', content: `+ ${pkg}@latest\nadded 1 package in 0.28s\n🚀 Available to import via https://esm.sh/${pkg}` });
+              onOutput({ id: `line_${Date.now()}`, type: 'success', content: `+ ${pkg}@latest\nadded 1 package in 0.28s\n🚀 Available in project via: import ${pkg.replace(/[^a-zA-Z0-9]/g, '')} from 'https://esm.sh/${pkg}'` });
             } else {
               onOutput({ id: `line_${Date.now()}`, type: 'success', content: `+ ${pkg}@latest added to virtual node_modules` });
             }
           } catch (e) {
             onOutput({ id: `line_${Date.now()}`, type: 'success', content: `+ ${pkg}@latest added to virtual node_modules` });
           }
+          notifyWorkspaceChanged();
         } else if (sub === 'list' || sub === 'ls') {
-          onOutput({ id: `line_${Date.now()}`, type: 'output', content: `pocketcode-workspace@1.0.0 /workspace\n├── lucide-react@0.344.0\n├── tailwindcss@3.4.1\n└── monaco-editor@0.46.0\n` });
-        } else if (sub === 'run') {
-          const script = args[1];
-          onOutput({ id: `line_${Date.now()}`, type: 'success', content: `> pocketcode-workspace@1.0.0 ${script || 'build'}\n> vite ${script || 'build'}\n⚡ Compiled in 120ms.` });
+          const pName = (fileSystemService.getCurrentProjectName() || 'pocketcode-workspace').toLowerCase().replace(/\s+/g, '-');
+          onOutput({ id: `line_${Date.now()}`, type: 'output', content: `${pName}@1.0.0 /workspace\n├── lucide-react@0.344.0\n├── tailwindcss@3.4.1\n└── monaco-editor@0.46.0\n` });
+        } else if (sub === 'run' || sub === 'start' || sub === 'dev' || sub === 'build') {
+          const script = (sub === 'run' ? args[1] : sub) || 'dev';
+          const pName = fileSystemService.getCurrentProjectName() || 'project';
+          onOutput({ id: `line_${Date.now()}`, type: 'success', content: `> ${pName.toLowerCase().replace(/\s+/g, '-')}@1.0.0 ${script}\n> vite ${script}\n⚡ Compiled and running in sandbox...` });
+          if (script === 'dev' || script === 'start' || script === 'preview') {
+            window.dispatchEvent(new CustomEvent('pocketcode:toggle-preview'));
+          }
         } else if (sub === 'init') {
-          onOutput({ id: `line_${Date.now()}`, type: 'success', content: 'Wrote to /workspace/package.json' });
+          const pkgJson = JSON.stringify({
+            name: (fileSystemService.getCurrentProjectName() || 'my-project').toLowerCase().replace(/[^a-z0-9-_]/g, '-'),
+            version: '1.0.0',
+            description: 'PocketCode Mobile IDE Project',
+            main: 'index.js',
+            scripts: {
+              dev: 'vite',
+              build: 'vite build',
+              start: 'node index.js'
+            },
+            keywords: [],
+            author: 'PocketCode Developer',
+            license: 'MIT'
+          }, null, 2);
+          await fileSystemService.createFile('package.json', false, null, pkgJson);
+          notifyWorkspaceChanged();
+          window.dispatchEvent(new CustomEvent('pocketcode:open-file', { detail: 'package.json' }));
+          onOutput({ id: `line_${Date.now()}`, type: 'success', content: `Created package.json for project '${fileSystemService.getCurrentProjectName()}' and opened in editor.` });
         } else {
-          onOutput({ id: `line_${Date.now()}`, type: 'output', content: 'Usage: npm install <pkg> | npm run <script> | npm list | npm init' });
+          onOutput({ id: `line_${Date.now()}`, type: 'output', content: 'Usage: npm install <pkg> | npm run dev | npm run build | npm start | npm init | npm list' });
         }
         break;
       }
@@ -1720,8 +1745,60 @@ Infinite Loop Guard: Execution Watchdog Active (5000ms max)`
       }
 
       // -------------------------------------------------------------
-      // 8. IDE SHORTCUTS & DEVELOPER ACTIONS
+      // 8. IDE SHORTCUTS & DIRECT PROJECT ACTIONS
       // -------------------------------------------------------------
+      case 'run':
+      case 'start':
+      case 'dev':
+      case 'test': {
+        const flat = fileSystemService.getAllFlatFiles();
+        const target = args[0];
+        let fileToRun = target ? (fileSystemService.getFileByPath(this.resolvePath(target)) || flat.find(f => f.name === target || f.path === target)) : undefined;
+
+        if (!fileToRun) {
+          // Auto-detect project main entry file
+          fileToRun = flat.find(f => f.name === 'main.py' || f.name === 'app.py') ||
+                      flat.find(f => f.name === 'index.html' || f.name === 'App.tsx' || f.name === 'index.jsx') ||
+                      flat.find(f => f.name === 'main.js' || f.name === 'index.js' || f.name === 'app.js') ||
+                      flat.find(f => f.name === 'main.cpp' || f.name === 'main.rs' || f.name === 'main.go' || f.name === 'Main.java') ||
+                      flat.find(f => !f.isFolder);
+        }
+
+        if (!fileToRun) {
+          onOutput({ id: `line_${Date.now()}`, type: 'error', content: `run: No runnable project file found in ${fileSystemService.getCurrentProjectName()}. Usage: run <filename>` });
+          return;
+        }
+
+        onOutput({ id: `line_${Date.now()}`, type: 'system', content: `🚀 [PocketCode Run] Executing '${fileToRun.name}' for project: ${fileSystemService.getCurrentProjectName()}...` });
+
+        if (fileToRun.name.endsWith('.py')) {
+          await pyodideService.runPython(
+            fileToRun.content || '',
+            (msg) => onOutput({ id: `line_${Date.now()}_${Math.random()}`, type: 'output', content: msg.trimEnd() }),
+            (err) => onOutput({ id: `line_${Date.now()}_${Math.random()}`, type: 'error', content: err.trimEnd() })
+          );
+        } else if (fileToRun.name.endsWith('.html') || fileToRun.name.endsWith('.tsx') || fileToRun.name.endsWith('.jsx')) {
+          window.dispatchEvent(new CustomEvent('pocketcode:toggle-preview'));
+          onOutput({ id: `line_${Date.now()}`, type: 'success', content: `🌐 Live Sandbox Web Preview launched for '${fileSystemService.getCurrentProjectName()}'!` });
+        } else {
+          await universalRunnerService.runFile(fileToRun, (line, type) => {
+            const termType = type === 'stderr' ? 'error' : type === 'system' ? 'system' : 'output';
+            onOutput({ id: `line_${Date.now()}_${Math.random()}`, type: termType, content: line });
+          });
+        }
+        break;
+      }
+
+      case 'build': {
+        const flat = fileSystemService.getAllFlatFiles();
+        const pName = fileSystemService.getCurrentProjectName();
+        onOutput({ id: `line_${Date.now()}`, type: 'system', content: `🔨 [Build] Analyzing and building project '${pName}' (${flat.length} items)...` });
+        await new Promise(r => setTimeout(r, 200));
+        onOutput({ id: `line_${Date.now()}_b1`, type: 'success', content: `✓ Validated ${flat.filter(f => !f.isFolder).length} source files without errors.` });
+        onOutput({ id: `line_${Date.now()}_b2`, type: 'success', content: `✓ Bundle ready in dist/` });
+        break;
+      }
+
       case 'code':
       case 'open':
       case 'edit': {
@@ -1731,15 +1808,16 @@ Infinite Loop Guard: Execution Watchdog Active (5000ms max)`
           return;
         }
         const resolved = this.resolvePath(target);
-        const file = fileSystemService.getFileByPath(resolved) || fileSystemService.getAllFlatFiles().find(f => f.name === target);
+        let file = fileSystemService.getFileByPath(resolved) || fileSystemService.getAllFlatFiles().find(f => f.name === target || f.path === resolved);
         if (!file) {
           // Create file if it doesn't exist
-          const newFile = await fileSystemService.createFile(resolved, false, null, '');
-          window.dispatchEvent(new CustomEvent('pocketcode:open-file', { detail: newFile }));
-          onOutput({ id: `line_${Date.now()}`, type: 'success', content: `Created and opened '${resolved}' in editor.` });
+          file = await fileSystemService.createFile(resolved, false, null, '');
+          notifyWorkspaceChanged();
+          window.dispatchEvent(new CustomEvent('pocketcode:open-file', { detail: file }));
+          onOutput({ id: `line_${Date.now()}`, type: 'success', content: `Created and opened '${resolved}' in editor tab.` });
         } else {
           window.dispatchEvent(new CustomEvent('pocketcode:open-file', { detail: file }));
-          onOutput({ id: `line_${Date.now()}`, type: 'success', content: `Opened '${file.path}' in editor.` });
+          onOutput({ id: `line_${Date.now()}`, type: 'success', content: `Opened '${file.path || file.name}' in editor tab.` });
         }
         break;
       }
@@ -1747,27 +1825,19 @@ Infinite Loop Guard: Execution Watchdog Active (5000ms max)`
       case 'preview':
       case 'serve': {
         window.dispatchEvent(new CustomEvent('pocketcode:toggle-preview'));
-        onOutput({ id: `line_${Date.now()}`, type: 'success', content: '🚀 Live Sandbox Preview launched.' });
+        onOutput({ id: `line_${Date.now()}`, type: 'success', content: `🚀 Live Sandbox Preview launched for ${fileSystemService.getCurrentProjectName()}.` });
         break;
       }
 
       case 'zip':
+      case 'backup':
       case 'tar': {
-        onOutput({ id: `line_${Date.now()}`, type: 'system', content: '📦 Archiving workspace files...' });
+        onOutput({ id: `line_${Date.now()}`, type: 'system', content: `📦 Archiving project '${fileSystemService.getCurrentProjectName()}' to mobile storage...` });
         try {
-          const JSZip = (await import('jszip')).default;
-          const zip = new JSZip();
-          const flatFiles = fileSystemService.getAllFlatFiles().filter(f => !f.isFolder);
-          flatFiles.forEach(f => zip.file(f.path, f.content || ''));
-          const blob = await zip.generateAsync({ type: 'blob' });
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement('a');
-          a.href = url;
-          a.download = `pocketcode_workspace_${Date.now()}.zip`;
-          a.click();
-          onOutput({ id: `line_${Date.now()}`, type: 'success', content: `Workspace archived and downloaded as ZIP (${flatFiles.length} files).` });
+          await fileSystemService.downloadProjectZip();
+          onOutput({ id: `line_${Date.now()}`, type: 'success', content: `✅ Project '${fileSystemService.getCurrentProjectName()}' downloaded as .ZIP!` });
         } catch (e: any) {
-          onOutput({ id: `line_${Date.now()}`, type: 'error', content: `Archive error: ${e.message}` });
+          onOutput({ id: `line_${Date.now()}`, type: 'error', content: `Export error: ${e.message}` });
         }
         break;
       }

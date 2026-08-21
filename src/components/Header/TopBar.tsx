@@ -25,6 +25,7 @@ interface TopBarProps {
   isSidebarOpen: boolean;
   isTerminalOpen: boolean;
   activeFileName?: string;
+  projectName?: string;
   onOpenNewProject?: () => void;
 }
 
@@ -46,6 +47,7 @@ export const TopBar: React.FC<TopBarProps> = ({
   isSidebarOpen,
   isTerminalOpen,
   activeFileName,
+  projectName,
   onOpenNewProject
 }) => {
   return (
@@ -62,7 +64,7 @@ export const TopBar: React.FC<TopBarProps> = ({
           <Menu size={18} />
         </button>
 
-        <div className="flex items-center gap-2 cursor-pointer" onClick={onOpenTemplates}>
+        <div className="flex items-center gap-2 cursor-pointer" onClick={onOpenNewProject || onOpenTemplates}>
           <div className="w-6 h-6 rounded-md bg-gradient-to-tr from-sky-600 to-blue-500 flex items-center justify-center shadow-sm">
             <Code size={14} className="text-white" />
           </div>
@@ -72,6 +74,17 @@ export const TopBar: React.FC<TopBarProps> = ({
             </span>
           </div>
         </div>
+
+        {/* Active Project Workspace Pill */}
+        <button
+          onClick={onOpenNewProject || onOpenTemplates}
+          className="flex items-center gap-1.5 px-2 py-0.5 bg-[#252526] hover:bg-[#2e3136] active:bg-[#007acc] text-[#cccccc] hover:text-white rounded-md border border-[#3c3c3c] text-xs font-semibold max-w-[120px] xs:max-w-[160px] sm:max-w-[200px] transition-colors"
+          title={`Active Workspace: ${projectName || 'My Pocket Workspace'} (Click to switch or create)`}
+        >
+          <span className="text-amber-400 shrink-0 text-xs">📁</span>
+          <span className="truncate text-xs font-medium">{projectName || 'Pocket Workspace'}</span>
+          <span className="text-[9px] text-[#888888]">▾</span>
+        </button>
 
         {/* Undo / Redo Global Buttons */}
         <div className="flex items-center gap-0.5 ml-1 bg-[#252526] p-0.5 rounded-md border border-[#3c3c3c]">

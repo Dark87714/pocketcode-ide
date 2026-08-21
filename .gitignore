@@ -31,6 +31,7 @@ dist-ssr
 
 # Android / Mobile Builds
 *.apk
+!PocketCode-IDE-v1.0.0.apk
 *.aab
 android/.gradle
 android/build
