@@ -10,7 +10,7 @@
 
   <br/><br/>
 
-  <a href="https://github.com/Dark87714/pocketcode-ide/releases/latest/download/PocketCode-IDE-v1.0.0.apk">
+  <a href="https://github.com/Dark87714/pocketcode-ide/raw/main/PocketCode-IDE-v1.0.0.apk">
     <img src="https://img.shields.io/badge/Download%20APK-v1.0.0-success?style=for-the-badge&logo=android&logoColor=white" alt="Download APK" height="40"/>
   </a>
 
@@ -20,21 +20,25 @@
 
 ## Features
 
--  **Desktop-Grade Code Editor**: Powered by Monaco Editor with syntax highlighting, auto-completion, error linting, code formatting, and multiple tabs.
--  **Custom Mobile Keybar**: Rapid access to programming symbols (`{`, `}`, `[`, `]`, `(`, `)`, `;`, `=>`, `"`, `'`, tabs, undo/redo) designed specifically for touch devices.
--  **In-Browser & Local Execution**: Run Python code directly on-device using Pyodide (Wasm) and preview HTML/CSS/JS in real-time.
--  **Extensions & Themes**: Support for customized themes, snippet packs, and developer tools.
--  **Integrated File System & Git**: Full file explorer, project templates, search & replace, and git source control interface.
--  **Native Android Integration**: Built using Capacitor for full on-device hardware acceleration and responsive mobile UI.
+- **Desktop-Grade Code Editor**: Powered by Monaco Editor with syntax highlighting, auto-completion, error linting, code formatting, and multiple tabs.
+- **Ultra-Fast Cold Start**: Instant 0ms cache hydration and optimized code-splitting.
+- **VS Code-Grade Project Workspace Hub**: Isolated per-project IndexedDB persistence, workspace switching, renaming, duplicating, and `.zip` export/import.
+- **Direct Project Terminal**: Interactive terminal with real-time file tree syncing, project runner (`run`, `preview`, `code <file>`), and package management.
+- **Custom Mobile Keybar**: Rapid access to programming symbols (`{`, `}`, `[`, `]`, `(`, `)`, `;`, `=>`, `"`, `'`, tabs, undo/redo) designed specifically for touch devices.
+- **In-Browser & Local Execution**: Run Python code directly on-device using Pyodide (Wasm) and preview HTML/CSS/JS in real-time.
+- **Extensions & Themes**: Support for customized themes, snippet packs, and developer tools.
+- **Integrated File System & Git**: Full file explorer, project templates, search & replace, and git source control interface.
+- **Native Android Integration**: Built using Capacitor for full on-device hardware acceleration and responsive mobile UI.
 
 ---
 
-##  Direct APK Download & Installation
+## Direct APK Download & Installation
 
 ### 1. Download the APK
-Click the button below to download the latest `.apk` package:
+Click the button below to download the latest updated `.apk` package:
 
-👉 **[Download PocketCode IDE v1.0.0 (APK)](https://github.com/Dark87714/pocketcode-ide/releases/latest/download/PocketCode-IDE-v1.0.0.apk)**
+👉 **[Download PocketCode IDE v1.0.0 (Direct APK)](https://github.com/Dark87714/pocketcode-ide/raw/main/PocketCode-IDE-v1.0.0.apk)**  
+📦 **[View APK File in Repository](https://github.com/Dark87714/pocketcode-ide/blob/main/PocketCode-IDE-v1.0.0.apk)**
 
 ### 2. Install on Android
 1. Open the downloaded `PocketCode-IDE-v1.0.0.apk` file on your Android device.
