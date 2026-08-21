@@ -10,7 +10,7 @@
 
   <br/><br/>
 
-  <a href="https://github.com/Dark87714/pocketcode-ide/raw/main/PocketCode-IDE-v1.0.0.apk">
+  <a href="https://github.com/Dark87714/pocketcode-ide/raw/main/PocketCode-IDE-v1.0.1.apk">
     <img src="https://img.shields.io/badge/Download%20APK-v1.0.1-success?style=for-the-badge&logo=android&logoColor=white" alt="Download APK v1.0.1" height="40"/>
   </a>
 
@@ -37,11 +37,11 @@
 ### 1. Download the APK
 Click the button below to download the latest updated `.apk` package:
 
-👉 **[Download PocketCode IDE v1.0.1 (Direct APK)](https://github.com/Dark87714/pocketcode-ide/raw/main/PocketCode-IDE-v1.0.0.apk)**  
-📦 **[View APK File in Repository](https://github.com/Dark87714/pocketcode-ide/blob/main/PocketCode-IDE-v1.0.0.apk)**
+👉 **[Download PocketCode IDE v1.0.1 (Direct APK)](https://github.com/Dark87714/pocketcode-ide/raw/main/PocketCode-IDE-v1.0.1.apk)**  
+📦 **[View APK File in Repository](https://github.com/Dark87714/pocketcode-ide/blob/main/PocketCode-IDE-v1.0.1.apk)**
 
 ### 2. Install on Android
-1. Open the downloaded `PocketCode-IDE-v1.0.0.apk` file on your Android device.
+1. Open the downloaded `PocketCode-IDE-v1.0.1.apk` file on your Android device.
 2. If prompted, enable **"Install from unknown sources"** in your browser/file manager settings.
 3. Tap **Install** and launch **PocketCode IDE**!
 
