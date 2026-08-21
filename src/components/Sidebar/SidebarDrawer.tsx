@@ -8,12 +8,17 @@ import { RunDebugPanel } from './RunDebugPanel';
 import { ExtensionsPanel } from './ExtensionsPanel';
 import { SettingsPanel } from './SettingsPanel';
 import { SecurityPanel } from './SecurityPanel';
+import { CopilotPanel } from './CopilotPanel';
 
 interface SidebarDrawerProps {
   isOpen: boolean;
   activeTab: ActiveSidebarTab;
   files: FileItem[];
   activeFileId: string | null;
+  activeFile?: FileItem | null;
+  selectedText?: string;
+  cursorLine?: number;
+  diagnostics?: DiagnosticProblem[];
   settings: EditorSettings;
   projectName?: string;
   onClose: () => void;
@@ -30,9 +35,12 @@ interface SidebarDrawerProps {
   onOpenTerminal: () => void;
   onUpdateSettings: (newSettings: Partial<EditorSettings>) => void;
   onInsertCodeToEditor?: (code: string) => void;
+  onReplaceFileContent?: (fileId: string, newContent: string) => void;
   onOpenDiff?: (fileName: string) => void;
+  onOpenDiffContent?: (original: string, modified: string, fileName: string) => void;
   onFilesImported?: () => void;
   onOpenNewProject?: () => void;
+  onJumpToLine?: (line: number) => void;
   sidebarWidth?: number;
   onWidthChange?: (width: number) => void;
 }
@@ -42,6 +50,10 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
   activeTab,
   files,
   activeFileId,
+  activeFile,
+  selectedText,
+  cursorLine,
+  diagnostics,
   settings,
   projectName,
   onClose,
@@ -58,9 +70,12 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
   onOpenTerminal,
   onUpdateSettings,
   onInsertCodeToEditor,
+  onReplaceFileContent,
   onOpenDiff,
+  onOpenDiffContent,
   onFilesImported,
   onOpenNewProject,
+  onJumpToLine,
   sidebarWidth = 240,
   onWidthChange
 }) => {
@@ -173,6 +188,7 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
               <Explorer
                 files={files}
                 activeFileId={activeFileId}
+                activeFile={activeFile}
                 projectName={projectName}
                 onOpenFile={(f) => {
                   onOpenFile(f);
@@ -189,6 +205,22 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
                 onExportZip={onExportZip}
                 onFilesImported={onFilesImported}
                 onOpenNewProject={onOpenNewProject}
+                onJumpToLine={(line) => {
+                  onJumpToLine?.(line);
+                  if (window.innerWidth < 768) onClose();
+                }}
+              />
+            )}
+            {activeTab === 'copilot' && (
+              <CopilotPanel
+                activeFile={activeFile}
+                selectedText={selectedText}
+                cursorLine={cursorLine}
+                diagnostics={diagnostics}
+                allFiles={files}
+                onInsertCode={onInsertCodeToEditor}
+                onReplaceFileContent={onReplaceFileContent}
+                onOpenDiff={onOpenDiffContent}
               />
             )}
             {activeTab === 'search' && (

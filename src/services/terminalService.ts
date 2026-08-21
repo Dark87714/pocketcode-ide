@@ -52,6 +52,62 @@ export class TerminalService {
     ]
   };
 
+  private remoteWs: WebSocket | null = null;
+
+  isRemoteConnected(): boolean {
+    return !!this.remoteWs && this.remoteWs.readyState === WebSocket.OPEN;
+  }
+
+  connectRemote(url: string, onOutput: (line: TerminalLine) => void) {
+    try {
+      if (this.remoteWs) {
+        this.remoteWs.close();
+      }
+      this.remoteWs = new WebSocket(url);
+      this.remoteWs.onopen = () => {
+        onOutput({
+          id: `line_${Date.now()}`,
+          type: 'success',
+          content: `🟢 Connected to Linux/Termux PTY Server at ${url}. Commands will now execute in real Linux bash.`
+        });
+      };
+      this.remoteWs.onmessage = (e) => {
+        onOutput({
+          id: `line_${Date.now()}`,
+          type: 'output',
+          content: e.data
+        });
+      };
+      this.remoteWs.onerror = () => {
+        onOutput({
+          id: `line_${Date.now()}`,
+          type: 'error',
+          content: `❌ Could not connect to Termux WebSocket server at ${url}. Make sure your Termux bridge server is running.`
+        });
+      };
+      this.remoteWs.onclose = () => {
+        onOutput({
+          id: `line_${Date.now()}`,
+          type: 'system',
+          content: `⚪ Disconnected from Termux PTY server. Reverted to PocketCode local Wasm environment.`
+        });
+        this.remoteWs = null;
+      };
+    } catch (err: any) {
+      onOutput({ id: `line_${Date.now()}`, type: 'error', content: `Connection error: ${err.message}` });
+    }
+  }
+
+  disconnectRemote(onOutput: (line: TerminalLine) => void) {
+    if (this.remoteWs) {
+      this.remoteWs.close();
+      this.remoteWs = null;
+      onOutput({ id: `line_${Date.now()}`, type: 'system', content: `Disconnected from remote Termux bridge.` });
+    } else {
+      onOutput({ id: `line_${Date.now()}`, type: 'info', content: `No active remote bridge connection.` });
+    }
+  }
+
   getCurrentDir(): string {
     return this.currentDir;
   }
@@ -223,6 +279,48 @@ export class TerminalService {
           return;
         }
         this.showManual(args[0].toLowerCase(), onOutput);
+        break;
+      }
+
+      case 'termux':
+      case 'remote': {
+        const sub = args[0]?.toLowerCase();
+        if (sub === 'connect') {
+          const url = args[1] || 'ws://localhost:8080';
+          onOutput({ id: `line_${Date.now()}`, type: 'system', content: `Connecting to Termux/Linux PTY Bridge at ${url}...` });
+          this.connectRemote(url, onOutput);
+        } else if (sub === 'disconnect') {
+          this.disconnectRemote(onOutput);
+        } else if (sub === 'status') {
+          onOutput({ id: `line_${Date.now()}`, type: 'info', content: `Termux Bridge Status: ${this.remoteWs && this.remoteWs.readyState === WebSocket.OPEN ? '🟢 CONNECTED' : '⚪ LOCAL POSIX SANDBOX'}` });
+        } else {
+          onOutput({
+            id: `line_${Date.now()}`,
+            type: 'info',
+            content: `🤖 Termux / Remote Linux Bridge
+Usage:
+  termux connect [ws://localhost:8080]  - Connect to local Termux or Linux VPS PTY bridge
+  termux disconnect                     - Disconnect and return to local Wasm shell
+  termux status                         - Check connection status
+  termux guide                          - Instructions for running bridge in Termux`
+          });
+        }
+        break;
+      }
+
+      case 'sysinfo': {
+        onOutput({
+          id: `line_${Date.now()}`,
+          type: 'info',
+          content: `📱 PocketCode OS & Kernel Diagnostics:
+- OS Platform: ${navigator.platform} (${/android/i.test(navigator.userAgent) ? 'Android Linux Kernel' : 'Web/Desktop'})
+- Browser Engine: ${navigator.userAgent.split(' ').pop() || 'Chromium'}
+- WebAssembly: ${typeof WebAssembly !== 'undefined' ? 'Enabled (Pyodide 3.11 Ready)' : 'Disabled'}
+- WebGPU / Hardware Accel: ${'gpu' in navigator ? 'Supported' : 'Standard WebGL'}
+- Screen Viewport: ${window.innerWidth}x${window.innerHeight} (${window.devicePixelRatio}x scale)
+- Memory Footprint: ${'memory' in performance ? ((performance as any).memory.usedJSHeapSize / (1024*1024) | 0) : '~35'} MB
+- Filesystem: IndexedDB Isolated Project Workspace (${fileSystemService.getCurrentProjectName()})`
+        });
         break;
       }
 

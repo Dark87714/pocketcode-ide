@@ -33,6 +33,9 @@ interface CommandPaletteProps {
   onToggleSplitEditor?: () => void;
   onToggleFindReplace?: () => void;
   onOpenNewProject?: () => void;
+  onOpenCopilot?: () => void;
+  onOpenGit?: () => void;
+  onRunPython?: () => void;
 }
 
 export const CommandPalette: React.FC<CommandPaletteProps> = ({
@@ -53,7 +56,10 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
   onFormatDocument,
   onToggleSplitEditor,
   onToggleFindReplace,
-  onOpenNewProject
+  onOpenNewProject,
+  onOpenCopilot,
+  onOpenGit,
+  onRunPython
 }) => {
   const [query, setQuery] = useState('');
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -70,6 +76,30 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
   if (!isOpen) return null;
 
   const baseCommands: CommandItem[] = [
+    {
+      id: 'cmd_copilot',
+      title: 'Copilot: Open AI Pair Programming Assistant',
+      category: 'AI / Copilot',
+      icon: <Sparkles size={14} className="text-amber-400" />,
+      shortcut: 'Ctrl+I',
+      action: () => onOpenCopilot?.()
+    },
+    {
+      id: 'cmd_git',
+      title: 'Source Control: Open Git Panel',
+      category: 'Git',
+      icon: <Command size={14} className="text-purple-400" />,
+      shortcut: 'Ctrl+Shift+G',
+      action: () => onOpenGit?.()
+    },
+    {
+      id: 'cmd_run_python',
+      title: 'Terminal: Run Active Python Script in Pyodide WASM',
+      category: 'Runner',
+      icon: <Play size={14} className="text-emerald-400" />,
+      shortcut: 'F5',
+      action: () => onRunPython?.()
+    },
     {
       id: 'cmd_new_project',
       title: 'Project: Start New Project (Blank, Template, Git Clone)',

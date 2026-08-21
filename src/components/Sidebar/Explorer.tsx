@@ -7,10 +7,12 @@ import {
 import { FileItem } from '../../types';
 import { getTabIcon } from '../Editor/EditorTabs';
 import { fileSystemService } from '../../services/fileSystem';
+import { extractSymbols, DocumentSymbol } from '../../utils/symbolParser';
 
 interface ExplorerProps {
   files: FileItem[];
   activeFileId: string | null;
+  activeFile?: FileItem | null;
   projectName?: string;
   onOpenFile: (file: FileItem) => void;
   onCreateFile: (name: string, isFolder?: boolean, targetFolderId?: string | null) => void;
@@ -21,11 +23,13 @@ interface ExplorerProps {
   onExportZip: () => void;
   onFilesImported?: () => void;
   onOpenNewProject?: () => void;
+  onJumpToLine?: (line: number) => void;
 }
 
 export const Explorer: React.FC<ExplorerProps> = ({
   files,
   activeFileId,
+  activeFile,
   projectName,
   onOpenFile,
   onCreateFile,
@@ -35,8 +39,14 @@ export const Explorer: React.FC<ExplorerProps> = ({
   onOpenTemplates,
   onExportZip,
   onFilesImported,
-  onOpenNewProject
+  onOpenNewProject,
+  onJumpToLine
 }) => {
+  const [isOutlineExpanded, setIsOutlineExpanded] = useState(true);
+  const symbols = React.useMemo(() => {
+    if (!activeFile?.content) return [];
+    return extractSymbols(activeFile.content, activeFile.language);
+  }, [activeFile?.content, activeFile?.language]);
   // State for creating new file/folder
   const [creatingTargetFolderId, setCreatingTargetFolderId] = useState<string | null>(null);
   const [isCreatingFile, setIsCreatingFile] = useState(false);
@@ -525,7 +535,7 @@ export const Explorer: React.FC<ExplorerProps> = ({
       )}
 
       {/* File & Folder Tree List */}
-      <div className="flex-1 overflow-y-auto px-1 py-1 space-y-0.5">
+      <div className="flex-1 overflow-y-auto px-1 py-1 space-y-0.5 min-h-[140px]">
         {files.length === 0 ? (
           <div className="p-4 text-center text-[#858585]">
             <p>No files or folders in workspace.</p>
@@ -540,6 +550,60 @@ export const Explorer: React.FC<ExplorerProps> = ({
           renderTree(files, 0)
         )}
       </div>
+
+      {/* VS Code Outline Symbols Section */}
+      {activeFile && (
+        <div className="border-t border-[#333333] bg-[#222222] max-h-48 flex flex-col shrink-0">
+          <div
+            onClick={() => setIsOutlineExpanded(!isOutlineExpanded)}
+            className="px-3 py-1.5 bg-[#1e1e1e] flex items-center justify-between text-[11px] font-bold text-[#888888] hover:text-white cursor-pointer select-none border-b border-[#2d2d2d]"
+          >
+            <div className="flex items-center gap-1.5">
+              {isOutlineExpanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+              <span className="uppercase tracking-wider">OUTLINE</span>
+              <span className="text-[10px] text-[#666666]">({symbols.length})</span>
+            </div>
+            <span className="text-[10px] font-mono text-sky-400 truncate max-w-[120px]">{activeFile.name}</span>
+          </div>
+
+          {isOutlineExpanded && (
+            <div className="flex-1 overflow-y-auto p-1 space-y-0.5 text-xs font-mono">
+              {symbols.length === 0 ? (
+                <div className="p-2 text-[10px] text-[#666666] italic text-center">
+                  No symbols found in {activeFile.name}
+                </div>
+              ) : (
+                symbols.map((sym, sIdx) => {
+                  let kindColor = 'text-amber-400';
+                  let kindLabel = '𝑓';
+                  if (sym.kind === 'class') { kindColor = 'text-sky-400'; kindLabel = '𝙲'; }
+                  else if (sym.kind === 'interface') { kindColor = 'text-purple-400'; kindLabel = '𝙸'; }
+                  else if (sym.kind === 'variable') { kindColor = 'text-emerald-400'; kindLabel = '𝑣'; }
+                  else if (sym.kind === 'enum') { kindColor = 'text-rose-400'; kindLabel = '𝙴'; }
+
+                  return (
+                    <button
+                      key={sIdx}
+                      onClick={() => onJumpToLine?.(sym.line)}
+                      className="w-full flex items-center justify-between px-2 py-1 rounded hover:bg-[#333333] text-left text-[#cccccc] hover:text-white transition-colors group text-[11px]"
+                      title={`Jump to line ${sym.line}`}
+                    >
+                      <div className="flex items-center gap-2 truncate">
+                        <span className={`font-bold text-xs ${kindColor} w-3 text-center`}>{kindLabel}</span>
+                        <span className="truncate group-hover:text-white text-white font-medium">{sym.name}</span>
+                        {sym.detail && <span className="text-[9px] text-[#666666] truncate font-sans">{sym.detail}</span>}
+                      </div>
+                      <span className="text-[9px] text-[#666666] group-hover:text-sky-400 font-mono">
+                        :{sym.line}
+                      </span>
+                    </button>
+                  );
+                })
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Bottom Action Cards: Start New Project / Switch Template */}
       <div className="p-2 border-t border-[#333333] bg-[#1e1e1e] space-y-1.5 safe-bottom">

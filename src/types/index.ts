@@ -23,6 +23,7 @@ export interface TabItem {
 export type ActiveSidebarTab = 
   | 'explorer' 
   | 'search' 
+  | 'copilot'
   | 'git' 
   | 'run' 
   | 'extensions' 

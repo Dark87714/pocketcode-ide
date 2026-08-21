@@ -3,6 +3,7 @@ import Editor, { OnMount, OnChange, loader } from '@monaco-editor/react';
 import * as monaco from 'monaco-editor';
 import { EditorSettings } from '../../types';
 import { THEMES } from '../../services/themeService';
+import { setupMonacoIntellisense } from '../../services/languageService';
 
 // Configure Monaco to use local bundled instance instead of CDN network calls
 loader.config({ monaco });
@@ -32,6 +33,9 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({
   const handleEditorDidMount: OnMount = (editor, monaco) => {
     editorRef.current = editor;
     monacoRef.current = monaco;
+
+    // Enhance TypeScript / JS language intelligence & global types
+    setupMonacoIntellisense(monaco);
 
     // Define custom themes
     THEMES.forEach((theme) => {

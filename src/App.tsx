@@ -96,6 +96,7 @@ export function App() {
   const [isSplitEditor, setIsSplitEditor] = useState(false);
   const [splitActiveTabId, setSplitActiveTabId] = useState<string | null>(null);
   const [isFindReplaceOpen, setIsFindReplaceOpen] = useState(false);
+  const [selectedText, setSelectedText] = useState('');
   const [diffState, setDiffState] = useState<{
     isOpen: boolean;
     original: string;
@@ -532,6 +533,39 @@ export function App() {
     });
   };
 
+  const handleJumpToLine = (line: number) => {
+    if (editorInstanceRef.current) {
+      editorInstanceRef.current.revealLineInCenter(line);
+      editorInstanceRef.current.setPosition({ lineNumber: line, column: 1 });
+      editorInstanceRef.current.focus();
+    }
+  };
+
+  const handleOpenDiffContent = (original: string, modified: string, fileName: string) => {
+    setDiffState({
+      isOpen: true,
+      original,
+      modified,
+      originalFileName: `${fileName} (Current)`,
+      modifiedFileName: `${fileName} (Proposed)`,
+      language: activeFile?.language || 'javascript'
+    });
+  };
+
+  const handleRunPythonScript = async () => {
+    setIsTerminalOpen(true);
+    setActiveBottomTab('output');
+    const flat = fileSystemService.getAllFlatFiles();
+    const pyFile = flat.find(f => f.name.endsWith('.py')) || activeFile;
+    if (pyFile) {
+      setOutputLogs([`[Running] ${pyFile.name} ...`]);
+      window.dispatchEvent(new CustomEvent('pocketcode:terminal-run-command', { detail: `python "${pyFile.path}"` }));
+      await universalRunnerService.runFile(pyFile, (line) => {
+        setOutputLogs(prev => [...prev, line]);
+      });
+    }
+  };
+
   const handleRunPreview = async () => {
     if (!activeFile) {
       setIsPreviewOpen(true);
@@ -698,6 +732,10 @@ export function App() {
           activeTab={activeSidebarTab}
           files={files}
           activeFileId={activeTab ? activeTab.fileId : null}
+          activeFile={activeFile}
+          selectedText={selectedText}
+          cursorLine={cursorPosition.line}
+          diagnostics={problems}
           settings={settings}
           projectName={currentProjectName}
           onClose={() => setIsSidebarOpen(false)}
@@ -711,19 +749,7 @@ export function App() {
           onExportZip={handleExportZip}
           onReplaceInFile={handleReplaceInFile}
           onRunPreview={handleRunPreview}
-          onRunPython={async () => {
-            setIsTerminalOpen(true);
-            setActiveBottomTab('output');
-            const flat = fileSystemService.getAllFlatFiles();
-            const pyFile = flat.find(f => f.name.endsWith('.py')) || activeFile;
-            if (pyFile) {
-              setOutputLogs([`[Running] ${pyFile.name} ...`]);
-              window.dispatchEvent(new CustomEvent('pocketcode:terminal-run-command', { detail: `python "${pyFile.path}"` }));
-              await universalRunnerService.runFile(pyFile, (line) => {
-                setOutputLogs(prev => [...prev, line]);
-              });
-            }
-          }}
+          onRunPython={handleRunPythonScript}
           onOpenTerminal={() => {
             setIsTerminalOpen(true);
             setActiveBottomTab('terminal');
@@ -741,7 +767,10 @@ export function App() {
             });
           }}
           onInsertCodeToEditor={handleInsertTextToEditor}
+          onReplaceFileContent={handleEditorChange}
           onOpenDiff={handleOpenDiff}
+          onOpenDiffContent={handleOpenDiffContent}
+          onJumpToLine={handleJumpToLine}
           onFilesImported={() => setFiles([...fileSystemService.getFiles()])}
         />
 
@@ -804,6 +833,14 @@ export function App() {
                           monacoInstanceRef.current = monaco;
                           editor.onDidChangeCursorPosition((e: any) => {
                             setCursorPosition({ line: e.position.lineNumber, col: e.position.column });
+                          });
+                          editor.onDidChangeCursorSelection((e: any) => {
+                            const model = editor.getModel();
+                            if (model && !e.selection.isEmpty()) {
+                              setSelectedText(model.getValueInRange(e.selection));
+                            } else {
+                              setSelectedText('');
+                            }
                           });
                         }}
                         onDiagnosticsUpdate={(markers) => {
@@ -965,6 +1002,15 @@ export function App() {
             onFormatDocument={handleFormatDocument}
             onToggleSplitEditor={handleToggleSplitEditor}
             onToggleFindReplace={() => setIsFindReplaceOpen(!isFindReplaceOpen)}
+            onOpenCopilot={() => {
+              setActiveSidebarTab('copilot');
+              setIsSidebarOpen(true);
+            }}
+            onOpenGit={() => {
+              setActiveSidebarTab('git');
+              setIsSidebarOpen(true);
+            }}
+            onRunPython={handleRunPythonScript}
           />
         </Suspense>
       )}

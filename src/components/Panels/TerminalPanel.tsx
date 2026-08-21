@@ -181,6 +181,8 @@ Try: 'run', 'preview', 'python main.py', 'npm run dev', 'git status', 'neofetch'
 
   const quickCommands = [
     { label: '⚡ run', cmd: 'run' },
+    { label: '🤖 termux', cmd: 'termux' },
+    { label: '📱 sysinfo', cmd: 'sysinfo' },
     { label: '🌐 preview', cmd: 'preview' },
     { label: '📦 export zip', cmd: 'export' },
     { label: '📁 ls -la', cmd: 'ls -la' },
