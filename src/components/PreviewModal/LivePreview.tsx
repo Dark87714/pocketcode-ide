@@ -28,6 +28,9 @@ export const LivePreview: React.FC<LivePreviewProps> = ({
 
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
+      if (iframeRef.current && event.source && event.source !== iframeRef.current.contentWindow) {
+        return; // Ignore messages not originating from our active sandbox iframe
+      }
       if (event.data && event.data.type === 'POCKETCODE_CONSOLE') {
         setConsoleLogs((prev) => [
           ...prev,

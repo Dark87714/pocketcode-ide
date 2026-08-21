@@ -76,12 +76,13 @@ export class WebPreviewService {
           return String(arg);
         }).join(' ');
         
+        var targetOrigin = (window.location.origin && window.location.origin !== 'null') ? window.location.origin : '*';
         window.parent.postMessage({
           type: 'POCKETCODE_CONSOLE',
           level: type,
           message: message,
           timestamp: new Date().toLocaleTimeString()
-        }, '*');
+        }, targetOrigin);
       } catch (err) {}
     }
 
