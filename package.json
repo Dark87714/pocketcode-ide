@@ -1,7 +1,7 @@
 {
   "name": "vscode-mobile-ide",
   "private": true,
-  "version": "1.0.3",
+  "version": "1.0.4",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -10,6 +10,8 @@
   },
   "dependencies": {
     "@monaco-editor/react": "^4.7.0",
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/xterm": "^6.0.0",
     "canvas-confetti": "^1.9.4",
     "clsx": "^2.1.1",
     "idb-keyval": "^6.2.1",

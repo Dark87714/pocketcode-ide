@@ -1002,10 +1002,7 @@ export function App() {
             onFormatDocument={handleFormatDocument}
             onToggleSplitEditor={handleToggleSplitEditor}
             onToggleFindReplace={() => setIsFindReplaceOpen(!isFindReplaceOpen)}
-            onOpenCopilot={() => {
-              setActiveSidebarTab('copilot');
-              setIsSidebarOpen(true);
-            }}
+
             onOpenGit={() => {
               setActiveSidebarTab('git');
               setIsSidebarOpen(true);

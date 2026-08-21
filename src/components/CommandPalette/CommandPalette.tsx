@@ -33,7 +33,6 @@ interface CommandPaletteProps {
   onToggleSplitEditor?: () => void;
   onToggleFindReplace?: () => void;
   onOpenNewProject?: () => void;
-  onOpenCopilot?: () => void;
   onOpenGit?: () => void;
   onRunPython?: () => void;
 }
@@ -57,7 +56,6 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
   onToggleSplitEditor,
   onToggleFindReplace,
   onOpenNewProject,
-  onOpenCopilot,
   onOpenGit,
   onRunPython
 }) => {
@@ -76,14 +74,6 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
   if (!isOpen) return null;
 
   const baseCommands: CommandItem[] = [
-    {
-      id: 'cmd_copilot',
-      title: 'Copilot: Open AI Pair Programming Assistant',
-      category: 'AI / Copilot',
-      icon: <Sparkles size={14} className="text-amber-400" />,
-      shortcut: 'Ctrl+I',
-      action: () => onOpenCopilot?.()
-    },
     {
       id: 'cmd_git',
       title: 'Source Control: Open Git Panel',

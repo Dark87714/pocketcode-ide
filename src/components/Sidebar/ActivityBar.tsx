@@ -21,7 +21,6 @@ export const ActivityBar: React.FC<ActivityBarProps> = ({
   const navItems: { id: ActiveSidebarTab; label: string; icon: React.ReactNode; badge?: string }[] = [
     { id: 'explorer', label: 'Explorer', icon: <Files size={20} /> },
     { id: 'search', label: 'Search', icon: <Search size={20} /> },
-    { id: 'copilot', label: 'Copilot', icon: <Sparkles size={20} className="text-amber-400" /> },
     { id: 'git', label: 'Git', icon: <GitFork size={20} /> },
     { id: 'run', label: 'Run', icon: <PlayCircle size={20} /> },
     { id: 'security', label: 'Security', icon: <ShieldCheck size={20} className="text-emerald-400" /> },

@@ -8,7 +8,6 @@ import { RunDebugPanel } from './RunDebugPanel';
 import { ExtensionsPanel } from './ExtensionsPanel';
 import { SettingsPanel } from './SettingsPanel';
 import { SecurityPanel } from './SecurityPanel';
-import { CopilotPanel } from './CopilotPanel';
 
 interface SidebarDrawerProps {
   isOpen: boolean;
@@ -211,18 +210,7 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
                 }}
               />
             )}
-            {activeTab === 'copilot' && (
-              <CopilotPanel
-                activeFile={activeFile}
-                selectedText={selectedText}
-                cursorLine={cursorLine}
-                diagnostics={diagnostics}
-                allFiles={files}
-                onInsertCode={onInsertCodeToEditor}
-                onReplaceFileContent={onReplaceFileContent}
-                onOpenDiff={onOpenDiffContent}
-              />
-            )}
+
             {activeTab === 'search' && (
               <SearchPanel
                 files={files}
