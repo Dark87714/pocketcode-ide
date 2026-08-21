@@ -10,7 +10,7 @@
 
   <br/><br/>
 
-  <a href="https://github.com/Dark87714/pocketcode-ide/raw/main/PocketCode-IDE-v1.0.4.apk" target="_blank">
+  <a href="https://github.com/Dark87714/pocketcode-ide/releases/download/v1.0.4/PocketCode-IDE-v1.0.4.apk" target="_blank">
     <img src="https://img.shields.io/badge/⬇️_DOWNLOAD_LATEST_APK-v1.0.4-2ea44f?style=for-the-badge&logo=android&logoColor=white&labelColor=238636" alt="Download APK v1.0.4" height="48"/>
   </a>
   &nbsp;&nbsp;
@@ -43,9 +43,9 @@
 
 | Version | Download Link | File Size | Platform |
 | :--- | :--- | :--- | :--- |
-| **v1.0.4 (Latest - Zero-Key AI & VS Code Parity)** | [**⬇️ Download `PocketCode-IDE-v1.0.4.apk`**](https://github.com/Dark87714/pocketcode-ide/raw/main/PocketCode-IDE-v1.0.4.apk) | ~8.2 MB | Android 7.0+ |
-| **v1.0.2 (Previous)** | [📦 Download `PocketCode-IDE-v1.0.2.apk`](https://github.com/Dark87714/pocketcode-ide/raw/main/PocketCode-IDE-v1.0.2.apk) | ~7.2 MB | Android 7.0+ |
-| **v1.0.1** | [📦 Download `PocketCode-IDE-v1.0.1.apk`](https://github.com/Dark87714/pocketcode-ide/raw/main/PocketCode-IDE-v1.0.1.apk) | ~6.8 MB | Android 7.0+ |
+| **v1.0.4 (Latest - Zero-Key AI & VS Code Parity)** | [**⬇️ Download `PocketCode-IDE-v1.0.4.apk`**](https://github.com/Dark87714/pocketcode-ide/releases/download/v1.0.4/PocketCode-IDE-v1.0.4.apk) | ~8.2 MB | Android 7.0+ |
+| **v1.0.2 (Previous)** | [📦 Download `PocketCode-IDE-v1.0.2.apk`](https://github.com/Dark87714/pocketcode-ide/releases/download/v1.0.2/PocketCode-IDE-v1.0.2.apk) | ~7.2 MB | Android 7.0+ |
+| **v1.0.1** | [📦 Download `PocketCode-IDE-v1.0.1.apk`](https://github.com/Dark87714/pocketcode-ide/releases/download/v1.0.1/PocketCode-IDE-v1.0.1.apk) | ~6.8 MB | Android 7.0+ |
 
 > 🔗 *You can also download assets from the [GitHub Releases Page](https://github.com/Dark87714/pocketcode-ide/releases).*
 
