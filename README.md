@@ -10,8 +10,12 @@
 
   <br/><br/>
 
-  <a href="https://github.com/Dark87714/pocketcode-ide/raw/main/PocketCode-IDE-v1.0.2.apk">
-    <img src="https://img.shields.io/badge/Download%20APK-v1.0.2-success?style=for-the-badge&logo=android&logoColor=white" alt="Download APK v1.0.2" height="40"/>
+  <a href="https://github.com/Dark87714/pocketcode-ide/raw/main/PocketCode-IDE-v1.0.2.apk" target="_blank">
+    <img src="https://img.shields.io/badge/⬇️_DOWNLOAD_LATEST_APK-v1.0.2-2ea44f?style=for-the-badge&logo=android&logoColor=white&labelColor=238636" alt="Download APK v1.0.2" height="48"/>
+  </a>
+  &nbsp;&nbsp;
+  <a href="https://github.com/Dark87714/pocketcode-ide/releases/latest" target="_blank">
+    <img src="https://img.shields.io/badge/📦_GITHUB_RELEASES-v1.0.2-007acc?style=for-the-badge&logo=github&logoColor=white&labelColor=1f6feb" alt="GitHub Releases" height="48"/>
   </a>
 
 </div>
@@ -24,6 +28,7 @@
 - **Ultra-Fast Cold Start**: Instant 0ms cache hydration and optimized code-splitting.
 - **VS Code-Grade Project Workspace Hub**: Isolated per-project IndexedDB persistence, workspace switching, renaming, duplicating, and `.zip` export/import.
 - **Direct Project Terminal**: Interactive terminal with real-time file tree syncing, project runner (`run`, `preview`, `code <file>`), and package management.
+- **Compact & Adaptive Mobile Header**: Refined top bar with "More Actions" overflow menu for formatting, search, and split-editor on any screen size.
 - **Custom Mobile Keybar**: Rapid access to programming symbols (`{`, `}`, `[`, `]`, `(`, `)`, `;`, `=>`, `"`, `'`, tabs, undo/redo) designed specifically for touch devices.
 - **In-Browser & Local Execution**: Run Python code directly on-device using Pyodide (Wasm) and preview HTML/CSS/JS in real-time.
 - **Extensions & Themes**: Support for customized themes, snippet packs, and developer tools.
@@ -32,13 +37,16 @@
 
 ---
 
-## Direct APK Download & Installation
+## 📱 Direct APK Download & Installation
 
-### 1. Download the APK
-Click the button below to download the latest updated `.apk` package:
+### 1. Download Latest APK (v1.0.2)
 
-👉 **[Download PocketCode IDE v1.0.2 (Direct APK)](https://github.com/Dark87714/pocketcode-ide/raw/main/PocketCode-IDE-v1.0.2.apk)**  
-📦 **[View APK File in Repository](https://github.com/Dark87714/pocketcode-ide/blob/main/PocketCode-IDE-v1.0.2.apk)**
+| Version | Download Link | File Size | Platform |
+| :--- | :--- | :--- | :--- |
+| **v1.0.2 (Latest)** | [**⬇️ Download `PocketCode-IDE-v1.0.2.apk`**](https://github.com/Dark87714/pocketcode-ide/raw/main/PocketCode-IDE-v1.0.2.apk) | ~6.8 MB | Android 7.0+ |
+| **v1.0.1 (Previous)** | [📦 Download `PocketCode-IDE-v1.0.1.apk`](https://github.com/Dark87714/pocketcode-ide/raw/main/PocketCode-IDE-v1.0.1.apk) | ~6.8 MB | Android 7.0+ |
+
+> 🔗 *You can also download assets from the [GitHub Releases Page](https://github.com/Dark87714/pocketcode-ide/releases).*
 
 ### 2. Install on Android
 1. Open the downloaded `PocketCode-IDE-v1.0.2.apk` file on your Android device.
