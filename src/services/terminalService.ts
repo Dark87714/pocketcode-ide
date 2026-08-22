@@ -1486,21 +1486,55 @@ Requires: micropip`
         }
 
         try {
-          const logs: string[] = [];
-          const customConsole = {
-            log: (...a: any[]) => logs.push(a.map(x => (typeof x === 'object' ? JSON.stringify(x, null, 2) : String(x))).join(' ')),
-            warn: (...a: any[]) => logs.push('[WARN] ' + a.map(x => String(x)).join(' ')),
-            error: (...a: any[]) => logs.push('[ERR] ' + a.map(x => String(x)).join(' '))
-          };
-          const fn = new Function('console', 'process', code);
-          fn(customConsole, { env: this.envVars, version: 'v20.12.2', platform: 'browser' });
-          if (logs.length > 0) {
-            onOutput({ id: `line_${Date.now()}`, type: 'output', content: logs.join('\n') });
-          } else {
-            onOutput({ id: `line_${Date.now()}`, type: 'success', content: 'Script executed with no output.' });
-          }
+          await new Promise<void>((resolve) => {
+            const workerCode = `
+              self.onmessage = async (e) => {
+                const { code, envVars } = e.data;
+                const customConsole = {
+                  log: (...a) => self.postMessage({ type: 'output', content: a.map(x => (typeof x === 'object' ? JSON.stringify(x, null, 2) : String(x))).join(' ') }),
+                  warn: (...a) => self.postMessage({ type: 'output', content: '[WARN] ' + a.map(x => String(x)).join(' ') }),
+                  error: (...a) => self.postMessage({ type: 'error', content: '[ERR] ' + a.map(x => String(x)).join(' ') })
+                };
+                const process = { env: envVars, version: 'v20.12.2', platform: 'browser' };
+                try {
+                  const AsyncFunction = Object.getPrototypeOf(async function(){}).constructor;
+                  const fn = new AsyncFunction('console', 'process', code);
+                  await fn(customConsole, process);
+                  self.postMessage({ type: 'done' });
+                } catch (e) {
+                  self.postMessage({ type: 'error', content: 'JavaScript Error: ' + e.message });
+                }
+              };
+            `;
+            const blob = new Blob([workerCode], { type: 'application/javascript' });
+            const workerUrl = URL.createObjectURL(blob);
+            const worker = new Worker(workerUrl);
+            
+            let hasOutput = false;
+            worker.onmessage = (e) => {
+              if (e.data.type === 'done') {
+                if (!hasOutput) {
+                  onOutput({ id: \`line_\${Date.now()}\`, type: 'success', content: 'Script executed with no output.' });
+                }
+                worker.terminate();
+                URL.revokeObjectURL(workerUrl);
+                resolve();
+              } else if (e.data.type === 'error') {
+                hasOutput = true;
+                onOutput({ id: \`line_\${Date.now()}\`, type: 'error', content: e.data.content });
+                worker.terminate();
+                URL.revokeObjectURL(workerUrl);
+                resolve();
+              } else {
+                hasOutput = true;
+                onOutput({ id: \`line_\${Date.now()}\`, type: e.data.type, content: e.data.content });
+              }
+            };
+            
+            worker.postMessage({ code, envVars: this.envVars });
+          });
         } catch (e: any) {
-          onOutput({ id: `line_${Date.now()}`, type: 'error', content: `JavaScript Error: ${e.message}` });
+          onOutput({ id: \`line_\${Date.now()}\`, type: 'error', content: \`JavaScript Error: \${e.message}\` });
         }
         break;
       }
