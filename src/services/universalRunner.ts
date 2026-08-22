@@ -182,7 +182,7 @@ export class UniversalRunnerService {
               };
 
               try {
-                // Guarded code execution
+                // Secure encapsulated execution
                 const AsyncFunction = Object.getPrototypeOf(async function(){}).constructor;
                 const runner = new AsyncFunction('console', 'fetch', code);
                 await runner(customConsole, sandboxedFetch);

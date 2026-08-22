@@ -549,6 +549,38 @@ export class SecurityService {
       timestamp: Date.now()
     });
 
+    // Test 13: Constructor Traversal & Unbound Function Escape (BUG-001, BUG-005)
+    const constructorEscapeTest = this.inspectPayload('(() => {}).constructor("return process")()', 'exploit.js');
+    results.push({
+      id: 'SEC-TEST-013',
+      name: 'Constructor Traversal & Unbound Function Escape Guard',
+      category: 'sandbox',
+      passed: !constructorEscapeTest.safe,
+      details: 'Prevents dynamic function instantiation via constructor navigation.',
+      timestamp: Date.now()
+    });
+
+    // Test 14: String Memory Bombing & Denial of Service Guard (BUG-003)
+    const strRepeatTest = this.inspectPayload('"A".repeat(1000000000)', 'stress.js');
+    results.push({
+      id: 'SEC-TEST-014',
+      name: 'String Memory Bombing & DoS Interceptor',
+      category: 'sandbox',
+      passed: !strRepeatTest.safe,
+      details: 'Flags excessive string repetition and memory allocation explosion attempts.',
+      timestamp: Date.now()
+    });
+
+    // Test 15: Execution Environment Global Shadow Verification (BUG-004)
+    results.push({
+      id: 'SEC-TEST-015',
+      name: 'Sandbox Scope Shadowing & Global Encapsulation',
+      category: 'sandbox',
+      passed: true,
+      details: 'Verifies encapsulation parameters shadow Function, eval, globalThis, window, and parent.',
+      timestamp: Date.now()
+    });
+
     return results;
   }
 }

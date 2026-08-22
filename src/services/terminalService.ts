@@ -1823,7 +1823,7 @@ Requires: micropip`
       }
 
       case 'test:security': {
-        onOutput({ id: `line_${Date.now()}`, type: 'system', content: '🛡️ Running Comprehensive Security Regression Test Suite (12 checks)...' });
+        onOutput({ id: `line_${Date.now()}`, type: 'system', content: '🛡️ Running Comprehensive Security Regression Test Suite (15 checks)...' });
         const testResults = securityService.runSecuritySelfTests();
         testResults.forEach((t) => {
           const icon = t.passed ? '✅' : '❌';
