@@ -61,29 +61,64 @@ export class TerminalService {
 
   connectRemote(url: string, onOutput: (line: TerminalLine) => void) {
     try {
+      if (!url || typeof url !== 'string') {
+        onOutput({ id: `line_${Date.now()}`, type: 'error', content: '❌ Invalid remote URL provided.' });
+        return;
+      }
+
+      const trimmedUrl = url.trim();
+      if (!trimmedUrl.startsWith('ws://') && !trimmedUrl.startsWith('wss://')) {
+        onOutput({ id: `line_${Date.now()}`, type: 'error', content: '❌ Protocol Error: Remote terminal URL must start with ws:// or wss://' });
+        return;
+      }
+
+      let parsed: URL;
+      try {
+        parsed = new URL(trimmedUrl);
+      } catch (e) {
+        onOutput({ id: `line_${Date.now()}`, type: 'error', content: '❌ Malformed WebSocket URL.' });
+        return;
+      }
+
+      const hostname = parsed.hostname.toLowerCase();
+      // Block SSRF to cloud metadata endpoints
+      if (hostname === '169.254.169.254' || hostname === 'metadata.google.internal') {
+        onOutput({ id: `line_${Date.now()}`, type: 'error', content: '🛡️ [WAF Blocked] Connection to cloud metadata services is forbidden.' });
+        return;
+      }
+
+      // Enforce TLS on public internet endpoints
+      const isLoopback = hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '10.0.2.2' || hostname === '::1';
+      if (!isLoopback && parsed.protocol === 'ws:') {
+        onOutput({ id: `line_${Date.now()}`, type: 'error', content: '⚠️ Security Warning: Unencrypted ws:// connection over public network rejected. Please use wss://' });
+        return;
+      }
+
       if (this.remoteWs) {
         this.remoteWs.close();
       }
-      this.remoteWs = new WebSocket(url);
+      
+      this.remoteWs = new WebSocket(trimmedUrl);
       this.remoteWs.onopen = () => {
         onOutput({
           id: `line_${Date.now()}`,
           type: 'success',
-          content: `🟢 Connected to Linux/Termux PTY Server at ${url}. Commands will now execute in real Linux bash.`
+          content: `🟢 Connected to Linux/Termux PTY Server at ${trimmedUrl}. Commands will now execute in real Linux bash.`
         });
       };
       this.remoteWs.onmessage = (e) => {
+        const raw = typeof e.data === 'string' ? e.data : '';
         onOutput({
           id: `line_${Date.now()}`,
           type: 'output',
-          content: e.data
+          content: raw
         });
       };
       this.remoteWs.onerror = () => {
         onOutput({
           id: `line_${Date.now()}`,
           type: 'error',
-          content: `❌ Could not connect to Termux WebSocket server at ${url}. Make sure your Termux bridge server is running.`
+          content: `❌ Could not connect to Termux WebSocket server at ${trimmedUrl}. Make sure your Termux bridge server is running.`
         });
       };
       this.remoteWs.onclose = () => {
@@ -1788,7 +1823,7 @@ Requires: micropip`
       }
 
       case 'test:security': {
-        onOutput({ id: `line_${Date.now()}`, type: 'system', content: '🛡️ Running Comprehensive Security Regression Test Suite (10 checks)...' });
+        onOutput({ id: `line_${Date.now()}`, type: 'system', content: '🛡️ Running Comprehensive Security Regression Test Suite (12 checks)...' });
         const testResults = securityService.runSecuritySelfTests();
         testResults.forEach((t) => {
           const icon = t.passed ? '✅' : '❌';
@@ -1828,9 +1863,17 @@ Requires: micropip`
         const wafTime = (performance.now() - t2).toFixed(2);
         onOutput({ id: `line_${Date.now()}_3`, type: 'success', content: `  ✅ WAF Static AST & Pattern Scanner (500 iterations): ${wafTime} ms` });
 
-        // 4. Memory Quota Check
+        // 4. Memory Stress Allocation Benchmark
+        const t3 = performance.now();
+        const memBenchArr: number[] = [];
+        for (let k = 0; k < 100_000; k++) {
+          memBenchArr.push(k * 2);
+        }
+        const memTime = (performance.now() - t3).toFixed(2);
+        onOutput({ id: `line_${Date.now()}_4`, type: 'success', content: `  ✅ Memory Allocation Rate (100K Array Elements): ${memTime} ms` });
+
         const totalDuration = (performance.now() - t0).toFixed(2);
-        onOutput({ id: `line_${Date.now()}_sum`, type: 'output', content: `\n✨ Benchmark Complete in ${totalDuration} ms. Browser Performance: EXCELLENT.` });
+        onOutput({ id: `line_${Date.now()}_sum`, type: 'output', content: `\n✨ Benchmark Complete in ${totalDuration} ms. Performance: OPTIMAL.` });
         break;
       }
 

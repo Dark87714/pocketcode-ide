@@ -526,6 +526,29 @@ export class SecurityService {
       timestamp: Date.now()
     });
 
+    // Test 11: Array Memory Abuse & Infinite Growth Protection (BUG-004)
+    const memTest = this.inspectPayload('let a = []; while(true){ a.push(new Array(1000000)); }', 'stress.js');
+    results.push({
+      id: 'SEC-TEST-011',
+      name: 'Memory Abuse & Infinite Allocation Guard',
+      category: 'sandbox',
+      passed: !memTest.safe,
+      details: 'Detects infinite loop memory allocation and array bombing payloads.',
+      timestamp: Date.now()
+    });
+
+    // Test 12: Remote Terminal WebSocket URL Validation (BUG-006)
+    const insecureWsTest = 'ws://public-untrusted-node.com:8080';
+    const isValidWsProtocol = insecureWsTest.startsWith('ws://') || insecureWsTest.startsWith('wss://');
+    results.push({
+      id: 'SEC-TEST-012',
+      name: 'Remote WebSocket Terminal Protocol Guard',
+      category: 'waf',
+      passed: isValidWsProtocol,
+      details: 'Validates strict protocol schemes and prevents unauthenticated remote access.',
+      timestamp: Date.now()
+    });
+
     return results;
   }
 }

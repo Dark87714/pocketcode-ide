@@ -62,9 +62,35 @@ export class UniversalRunnerService {
           // Hardened sandbox preamble (BUG-001, BUG-004)
           const workerCode = `
             'use strict';
-            // Neutralize dangerous / exfiltration APIs inside worker sandbox (BUG-001, BUG-004)
+            // Allowlist-based Global Scope Stripping (BUG-001, BUG-004, BUG-005)
             try {
-              self.importScripts = function() { throw new Error('Security Error: importScripts() is disabled in this sandbox environment.'); };
+              const SAFE_GLOBALS = new Set([
+                'undefined', 'NaN', 'Infinity', 'isFinite', 'isNaN', 'parseFloat', 'parseInt',
+                'decodeURI', 'decodeURIComponent', 'encodeURI', 'encodeURIComponent',
+                'Object', 'Function', 'Array', 'Number', 'String', 'Boolean', 'Symbol', 'Date', 'Promise', 'RegExp',
+                'Error', 'EvalError', 'RangeError', 'ReferenceError', 'SyntaxError', 'TypeError', 'URIError',
+                'JSON', 'Math', 'Intl', 'ArrayBuffer', 'Uint8Array', 'Int8Array', 'Uint16Array', 'Int16Array',
+                'Uint32Array', 'Int32Array', 'Float32Array', 'Float64Array', 'BigInt64Array', 'BigUint64Array',
+                'DataView', 'Map', 'Set', 'WeakMap', 'WeakSet', 'BigInt',
+                'console', 'fetch', 'setTimeout', 'clearTimeout', 'setInterval', 'clearInterval',
+                'onmessage', 'postMessage', 'performance', 'self', 'globalThis'
+              ]);
+
+              // Strip all non-allowlisted properties from global scope
+              const globalProps = Object.getOwnPropertyNames(self);
+              for (const prop of globalProps) {
+                if (!SAFE_GLOBALS.has(prop)) {
+                  try {
+                    delete self[prop];
+                    if (self[prop] !== undefined) {
+                      self[prop] = undefined;
+                    }
+                  } catch (e) {}
+                }
+              }
+
+              // Explicitly neutralize hazardous APIs
+              self.importScripts = function() { throw new Error('Security Error: importScripts() is disabled.'); };
               self.WebSocket = undefined;
               self.EventSource = undefined;
               self.XMLHttpRequest = undefined;
@@ -80,10 +106,13 @@ export class UniversalRunnerService {
                 try { self.navigator.sendBeacon = undefined; } catch(e) {}
               }
 
-              // Deep prototype lockdown against prototype pollution exploits
+              // Deep prototype freezing to defeat prototype pollution and sandbox escape
               Object.freeze(Object.prototype);
               Object.freeze(Array.prototype);
               Object.freeze(Function.prototype);
+              Object.freeze(String.prototype);
+              Object.freeze(Number.prototype);
+              Object.freeze(Boolean.prototype);
             } catch(e) {}
 
             self.onmessage = async (e) => {
@@ -153,6 +182,7 @@ export class UniversalRunnerService {
               };
 
               try {
+                // Guarded code execution
                 const AsyncFunction = Object.getPrototypeOf(async function(){}).constructor;
                 const runner = new AsyncFunction('console', 'fetch', code);
                 await runner(customConsole, sandboxedFetch);
