@@ -62,7 +62,7 @@ export class UniversalRunnerService {
           // Hardened sandbox preamble (BUG-001, BUG-004)
           const workerCode = `
             'use strict';
-            // Neutralize dangerous / exfiltration APIs inside worker sandbox
+            // Neutralize dangerous / exfiltration APIs inside worker sandbox (BUG-001, BUG-004)
             try {
               self.importScripts = function() { throw new Error('Security Error: importScripts() is disabled in this sandbox environment.'); };
               self.WebSocket = undefined;
@@ -79,17 +79,46 @@ export class UniversalRunnerService {
               if (self.navigator) {
                 try { self.navigator.sendBeacon = undefined; } catch(e) {}
               }
+
+              // Deep prototype lockdown against prototype pollution exploits
+              Object.freeze(Object.prototype);
+              Object.freeze(Array.prototype);
+              Object.freeze(Function.prototype);
             } catch(e) {}
 
             self.onmessage = async (e) => {
               if (!e.data || typeof e.data !== 'object') return;
               const { code, wafEnabled, strictMode, blockedDomains, allowedDomains } = e.data;
               
+              let logCount = 0;
+              const MAX_LOGS = 500;
+              const MAX_STR_LEN = 10000;
+
+              const sanitizeArg = (a) => {
+                let str = typeof a === 'object' ? JSON.stringify(a, null, 2) : String(a);
+                if (str && str.length > MAX_STR_LEN) {
+                  str = str.slice(0, MAX_STR_LEN) + '... [Truncated: output exceeded 10KB limit]';
+                }
+                return str;
+              };
+
+              const postLog = (type, msg) => {
+                if (logCount >= MAX_LOGS) {
+                  if (logCount === MAX_LOGS) {
+                    logCount++;
+                    self.postMessage({ type: 'stderr', msg: '⚠️ [Output Quota Exceeded] Truncating further logs (Max: 500 lines reached to protect device memory).' });
+                  }
+                  return;
+                }
+                logCount++;
+                self.postMessage({ type, msg });
+              };
+
               const customConsole = {
-                log: (...args) => self.postMessage({ type: 'stdout', msg: args.map(a => typeof a === 'object' ? JSON.stringify(a, null, 2) : String(a)).join(' ') }),
-                warn: (...args) => self.postMessage({ type: 'stderr', msg: '[WARN] ' + args.map(a => String(a)).join(' ') }),
-                error: (...args) => self.postMessage({ type: 'stderr', msg: '[ERROR] ' + args.map(a => String(a)).join(' ') }),
-                table: (data) => self.postMessage({ type: 'stdout', msg: typeof data === 'object' ? JSON.stringify(data, null, 2) : String(data) })
+                log: (...args) => postLog('stdout', args.map(sanitizeArg).join(' ')),
+                warn: (...args) => postLog('stderr', '[WARN] ' + args.map(sanitizeArg).join(' ')),
+                error: (...args) => postLog('stderr', '[ERROR] ' + args.map(sanitizeArg).join(' ')),
+                table: (data) => postLog('stdout', typeof data === 'object' ? sanitizeArg(data) : String(data))
               };
 
               const originalFetch = typeof fetch === 'function' ? fetch : null;
@@ -162,10 +191,10 @@ export class UniversalRunnerService {
             if (!data || typeof data !== 'object') return;
 
             if (data.type === 'stdout' && typeof data.msg === 'string') {
-              logs.push(data.msg);
+              if (logs.length < 500) logs.push(data.msg);
               onOutput(data.msg, 'stdout');
             } else if (data.type === 'stderr' && typeof data.msg === 'string') {
-              logs.push(data.msg);
+              if (logs.length < 500) logs.push(data.msg);
               onOutput(data.msg, 'stderr');
             } else if (data.type === 'error') {
               const errMsg = typeof data.error === 'string' ? data.error : 'Unknown runtime error';
