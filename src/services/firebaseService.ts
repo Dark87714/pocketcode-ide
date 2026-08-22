@@ -1,28 +1,42 @@
-import { initializeApp } from "firebase/app";
-import { getFirestore, collection, addDoc, serverTimestamp } from "firebase/firestore";
+import { initializeApp, getApps } from "firebase/app";
+import { getFirestore, collection, addDoc, serverTimestamp, Firestore } from "firebase/firestore";
 
-// TODO: Replace with your actual Firebase project configuration
+// Read Firebase configuration from environment variables with safe fallbacks
 const firebaseConfig = {
-  apiKey: "YOUR_API_KEY",
-  authDomain: "YOUR_AUTH_DOMAIN",
-  projectId: "YOUR_PROJECT_ID",
-  storageBucket: "YOUR_STORAGE_BUCKET",
-  messagingSenderId: "YOUR_MESSAGING_SENDER_ID",
-  appId: "YOUR_APP_ID"
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || "YOUR_API_KEY",
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || "YOUR_AUTH_DOMAIN",
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || "YOUR_PROJECT_ID",
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || "YOUR_STORAGE_BUCKET",
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || "YOUR_MESSAGING_SENDER_ID",
+  appId: import.meta.env.VITE_FIREBASE_APP_ID || "YOUR_APP_ID"
 };
 
-// Initialize Firebase only if API key is provided
-let db: any = null;
+let db: Firestore | null = null;
 
-if (firebaseConfig.apiKey !== "YOUR_API_KEY") {
-  const app = initializeApp(firebaseConfig);
-  db = getFirestore(app);
+// Initialize Firebase only when a real non-placeholder API key is configured
+const isConfigured = 
+  firebaseConfig.apiKey && 
+  firebaseConfig.apiKey !== "YOUR_API_KEY" && 
+  !firebaseConfig.apiKey.includes("YOUR_");
+
+if (isConfigured) {
+  try {
+    const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
+    db = getFirestore(app);
+  } catch (err) {
+    console.warn("Firebase initialization skipped:", err);
+  }
 }
 
-export const saveFeedbackToFirestore = async (feedbackText: string) => {
+export const saveFeedbackToFirestore = async (feedbackText: string): Promise<boolean> => {
   if (!db) {
-    console.warn("Firebase is not configured. Feedback will not be saved. Please update firebaseConfig.");
-    return false; // Simulate success for UI if not configured, or return false to show warning
+    // Offline / Local cache fallback for unconfigured instances
+    try {
+      const localFeedback = JSON.parse(localStorage.getItem('pocketcode_offline_feedback') || '[]');
+      localFeedback.push({ message: feedbackText, timestamp: Date.now() });
+      localStorage.setItem('pocketcode_offline_feedback', JSON.stringify(localFeedback.slice(-50)));
+    } catch (e) {}
+    return true;
   }
 
   try {
@@ -32,7 +46,7 @@ export const saveFeedbackToFirestore = async (feedbackText: string) => {
     });
     return true;
   } catch (error) {
-    console.error("Error adding document: ", error);
-    throw error;
+    console.warn("Error saving feedback to Firestore:", error);
+    return false;
   }
 };

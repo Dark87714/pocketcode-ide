@@ -107,4 +107,47 @@ export interface ProjectMetadata {
   templateId?: string;
   fileCount: number;
   description?: string;
+  schemaVersion?: number;
+}
+
+export type WorkerMessageType = 'stdout' | 'stderr' | 'output' | 'error' | 'done' | 'system' | 'table';
+
+export interface WorkerExecutionMessage {
+  type: WorkerMessageType;
+  msg?: string;
+  content?: string;
+  error?: string;
+  stack?: string;
+  data?: unknown;
+}
+
+export interface SecurityTestResult {
+  id: string;
+  name: string;
+  category: 'sandbox' | 'timeout' | 'waf' | 'xss' | 'prototype';
+  passed: boolean;
+  details: string;
+  timestamp: number;
+}
+
+export interface WorkspaceMigrationReport {
+  previousVersion: number;
+  currentVersion: number;
+  filesMigrated: number;
+  repairedEntries: number;
+  backupCreated: boolean;
+  success: boolean;
+}
+
+/**
+ * Standardizes error formatting across all IDE subsystems
+ */
+export function formatErrorMessage(error: unknown): string {
+  if (!error) return 'Unknown error occurred';
+  if (typeof error === 'string') return error;
+  if (error instanceof Error) return error.message;
+  if (typeof error === 'object' && 'message' in error && typeof (error as any).message === 'string') {
+    return (error as any).message;
+  }
+  return String(error);
 }

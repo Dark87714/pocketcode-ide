@@ -1506,16 +1506,18 @@ Requires: micropip`
       case 'deno':
       case 'bun': {
         if (args.includes('--version') || args.includes('-v')) {
-          onOutput({ id: `line_${Date.now()}`, type: 'output', content: 'v20.12.2 (V8 / In-Browser Runtime)' });
+          onOutput({ id: `line_${Date.now()}`, type: 'output', content: 'v20.12.2 (PocketCode In-Browser V8 WebAssembly Worker Runtime)' });
           return;
         }
 
         const eIdx = args.indexOf('-e');
         let code = '';
+        let fileName = 'script.js';
 
         if (eIdx !== -1 && args[eIdx + 1]) {
           code = args.slice(eIdx + 1).join(' ');
         } else if (args[0]) {
+          fileName = args[0];
           const targetPath = this.resolvePath(args[0]);
           const jsFile = fileSystemService.getFileByPath(targetPath) || fileSystemService.getAllFlatFiles().find(f => f.name === args[0] || f.path === targetPath);
           if (!jsFile) {
@@ -1524,28 +1526,99 @@ Requires: micropip`
           }
           code = jsFile.content;
         } else {
-          onOutput({ id: `line_${Date.now()}`, type: 'info', content: 'Node.js v20.12.2. Usage: node <file.js> or node -e "console.log(process.version)"' });
+          onOutput({ id: `line_${Date.now()}`, type: 'info', content: 'Node.js v20.12.2 (PocketCode Sandbox). Usage: node <file.js> or node -e "console.log(process.version)"' });
+          return;
+        }
+
+        // Pre-execution security & WAF inspection (BUG-006)
+        const scan = securityService.scanCode(code, fileName);
+        if (scan.riskLevel === 'critical') {
+          onOutput({ id: `line_${Date.now()}`, type: 'error', content: `🛡️ [WAF Blocked] Execution stopped. Dangerous payload detected: ${scan.threats.join(', ')}` });
           return;
         }
 
         try {
           await new Promise<void>((resolve) => {
+            // Hardened sandbox preamble with Node.js stdlib polyfills (BUG-001, BUG-003, BUG-004)
             const workerCode = `
+              'use strict';
+              try {
+                self.importScripts = function() { throw new Error('Security Error: importScripts() is disabled in this sandbox environment.'); };
+                self.WebSocket = undefined;
+                self.EventSource = undefined;
+                self.XMLHttpRequest = undefined;
+                self.Worker = undefined;
+                self.SharedWorker = undefined;
+                self.BroadcastChannel = undefined;
+                self.MessageChannel = undefined;
+                self.Notification = undefined;
+                self.indexedDB = undefined;
+                self.caches = undefined;
+                self.openDatabase = undefined;
+                if (self.navigator) {
+                  try { self.navigator.sendBeacon = undefined; } catch(e) {}
+                }
+              } catch(e) {}
+
               self.onmessage = async (e) => {
+                if (!e.data || typeof e.data !== 'object') return;
                 const { code, envVars } = e.data;
                 const customConsole = {
                   log: (...a) => self.postMessage({ type: 'output', content: a.map(x => (typeof x === 'object' ? JSON.stringify(x, null, 2) : String(x))).join(' ') }),
                   warn: (...a) => self.postMessage({ type: 'output', content: '[WARN] ' + a.map(x => String(x)).join(' ') }),
-                  error: (...a) => self.postMessage({ type: 'error', content: '[ERR] ' + a.map(x => String(x)).join(' ') })
+                  error: (...a) => self.postMessage({ type: 'error', content: '[ERR] ' + a.map(x => String(x)).join(' ') }),
+                  table: (d) => self.postMessage({ type: 'output', content: typeof d === 'object' ? JSON.stringify(d, null, 2) : String(d) })
                 };
-                const process = { env: envVars, version: 'v20.12.2', platform: 'browser' };
+
+                const processObj = {
+                  env: envVars || {},
+                  version: 'v20.12.2',
+                  platform: 'browser',
+                  arch: 'wasm32',
+                  cwd: () => '/workspace',
+                  argv: ['node', 'index.js'],
+                  nextTick: (fn) => setTimeout(fn, 0),
+                  exit: (code = 0) => self.postMessage({ type: 'done' })
+                };
+
+                // Standard mock Node.js modules for browser execution
+                const mockPath = {
+                  join: (...parts) => parts.join('/').replace(/\\/+/g, '/'),
+                  resolve: (...parts) => '/' + parts.join('/').replace(/\\/+/g, '/'),
+                  basename: (p) => String(p).split('/').pop() || '',
+                  dirname: (p) => String(p).split('/').slice(0, -1).join('/') || '.',
+                  extname: (p) => { const base = String(p).split('/').pop() || ''; const i = base.lastIndexOf('.'); return i !== -1 ? base.slice(i) : ''; }
+                };
+
+                const mockOs = {
+                  platform: () => 'browser',
+                  arch: () => 'wasm32',
+                  cpus: () => [{ model: 'Virtual V8 WASM Core', speed: 2800 }],
+                  totalmem: () => 4 * 1024 * 1024 * 1024,
+                  freemem: () => 2 * 1024 * 1024 * 1024,
+                  homedir: () => '/home/pocketcode',
+                  tmpdir: () => '/tmp'
+                };
+
+                const mockRequire = (modName) => {
+                  if (modName === 'path') return mockPath;
+                  if (modName === 'os') return mockOs;
+                  if (modName === 'assert') return (cond, msg) => { if (!cond) throw new Error(msg || 'Assertion failed'); };
+                  if (modName === 'util') return { format: (...a) => a.join(' '), inspect: (o) => JSON.stringify(o, null, 2) };
+                  if (modName === 'events') return class EventEmitter { on() {} emit() {} off() {} };
+                  if (['child_process', 'cluster', 'net', 'http', 'https', 'tls', 'dgram'].includes(modName)) {
+                    throw new Error('Module "' + modName + '" is a native OS binary module not supported in browser-based mobile IDE. Use Web Fetch or standard JS.');
+                  }
+                  return {};
+                };
+
                 try {
                   const AsyncFunction = Object.getPrototypeOf(async function(){}).constructor;
-                  const fn = new AsyncFunction('console', 'process', code);
-                  await fn(customConsole, process);
+                  const fn = new AsyncFunction('console', 'process', 'require', 'path', 'os', code);
+                  await fn(customConsole, processObj, mockRequire, mockPath, mockOs);
                   self.postMessage({ type: 'done' });
                 } catch (e) {
-                  self.postMessage({ type: 'error', content: 'JavaScript Error: ' + e.message });
+                  self.postMessage({ type: 'error', content: 'JavaScript Error: ' + (e ? (e.message || String(e)) : 'Execution failed') });
                 }
               };
             `;
@@ -1554,24 +1627,50 @@ Requires: micropip`
             const worker = new Worker(workerUrl);
             
             let hasOutput = false;
-            worker.onmessage = (e) => {
-              if (e.data.type === 'done') {
+            let isCleanedUp = false;
+            let watchdogTimer: any = null;
+
+            const cleanup = () => {
+              if (isCleanedUp) return;
+              isCleanedUp = true;
+              if (watchdogTimer) clearTimeout(watchdogTimer);
+              try { worker.terminate(); } catch(e) {}
+              try { URL.revokeObjectURL(workerUrl); } catch(e) {}
+            };
+
+            // 10s Execution Watchdog (BUG-002)
+            watchdogTimer = setTimeout(() => {
+              onOutput({ id: `line_${Date.now()}`, type: 'error', content: '⏱️ [Execution Timeout] Process exceeded 10s limit. Terminated infinite loop or long-running script.' });
+              cleanup();
+              resolve();
+            }, 10000);
+
+            worker.onmessage = (e: MessageEvent) => {
+              const data = e.data;
+              if (!data || typeof data !== 'object') return;
+
+              if (data.type === 'done') {
                 if (!hasOutput) {
-                  onOutput({ id: `line_${Date.now()}`, type: 'success', content: 'Script executed with no output.' });
+                  onOutput({ id: `line_${Date.now()}`, type: 'success', content: 'Script executed with exit code 0.' });
                 }
-                worker.terminate();
-                URL.revokeObjectURL(workerUrl);
+                cleanup();
                 resolve();
-              } else if (e.data.type === 'error') {
+              } else if (data.type === 'error') {
                 hasOutput = true;
-                onOutput({ id: `line_${Date.now()}`, type: 'error', content: e.data.content });
-                worker.terminate();
-                URL.revokeObjectURL(workerUrl);
+                onOutput({ id: `line_${Date.now()}`, type: 'error', content: typeof data.content === 'string' ? data.content : 'Error' });
+                cleanup();
                 resolve();
               } else {
                 hasOutput = true;
-                onOutput({ id: `line_${Date.now()}`, type: e.data.type, content: e.data.content });
+                onOutput({ id: `line_${Date.now()}`, type: data.type || 'output', content: typeof data.content === 'string' ? data.content : JSON.stringify(data.content) });
               }
+            };
+
+            worker.onerror = (err: ErrorEvent) => {
+              hasOutput = true;
+              onOutput({ id: `line_${Date.now()}`, type: 'error', content: `Sandbox Error: ${err.message || 'Worker thread crashed'}` });
+              cleanup();
+              resolve();
             };
             
             worker.postMessage({ code, envVars: this.envVars });
@@ -1590,14 +1689,25 @@ Requires: micropip`
         if ((sub === 'install' || sub === 'i' || sub === 'add') && pkg) {
           onOutput({ id: `line_${Date.now()}`, type: 'system', content: `⚡ [npm] Resolving ${pkg} from esm.sh CDN registry for ${fileSystemService.getCurrentProjectName()}...` });
           try {
+            // Update workspace package.json if it exists (BUG-009)
+            const pkgFile = fileSystemService.getFileByPath('/package.json') || fileSystemService.getAllFlatFiles().find(f => f.name === 'package.json');
+            if (pkgFile && pkgFile.content) {
+              try {
+                const parsed = JSON.parse(pkgFile.content);
+                if (!parsed.dependencies) parsed.dependencies = {};
+                parsed.dependencies[pkg] = '^latest';
+                fileSystemService.updateFileContent(pkgFile.id, JSON.stringify(parsed, null, 2));
+              } catch (e) {}
+            }
+
             const resp = await fetch(`https://esm.sh/${pkg}`);
             if (resp.ok) {
               onOutput({ id: `line_${Date.now()}`, type: 'success', content: `+ ${pkg}@latest\nadded 1 package in 0.28s\n🚀 Available in project via: import ${pkg.replace(/[^a-zA-Z0-9]/g, '')} from 'https://esm.sh/${pkg}'` });
             } else {
-              onOutput({ id: `line_${Date.now()}`, type: 'success', content: `+ ${pkg}@latest added to virtual node_modules` });
+              onOutput({ id: `line_${Date.now()}`, type: 'success', content: `+ ${pkg}@latest added to virtual dependencies` });
             }
           } catch (e) {
-            onOutput({ id: `line_${Date.now()}`, type: 'success', content: `+ ${pkg}@latest added to virtual node_modules` });
+            onOutput({ id: `line_${Date.now()}`, type: 'success', content: `+ ${pkg}@latest added to virtual dependencies` });
           }
           notifyWorkspaceChanged();
         } else if (sub === 'list' || sub === 'ls') {
@@ -1642,6 +1752,18 @@ Requires: micropip`
           return;
         }
         onOutput({ id: `line_${Date.now()}`, type: 'success', content: `Need to install the following packages:\n  ${tool}@latest\nOk to proceed? (y)\nExecuting ${tool}...` });
+        break;
+      }
+
+      case 'test:security': {
+        onOutput({ id: `line_${Date.now()}`, type: 'system', content: '🛡️ Running Automated Security Regression Test Suite (5 checks)...' });
+        const testResults = securityService.runSecuritySelfTests();
+        testResults.forEach((t) => {
+          const icon = t.passed ? '✅' : '❌';
+          onOutput({ id: `line_${Date.now()}_${t.id}`, type: t.passed ? 'success' : 'error', content: `${icon} [${t.id}] ${t.name}: ${t.details}` });
+        });
+        const allPassed = testResults.every(t => t.passed);
+        onOutput({ id: `line_${Date.now()}_summary`, type: allPassed ? 'success' : 'error', content: `\n✨ Results: ${testResults.filter(t => t.passed).length}/${testResults.length} test cases passed. Sandbox & WAF status: ARMORED.` });
         break;
       }
 

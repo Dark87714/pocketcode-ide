@@ -379,6 +379,100 @@ export class SecurityService {
   getAllowedDomains(): string[] {
     return Array.from(this.allowedDomains);
   }
+
+  /**
+   * Static security scan of user code before execution (BUG-006)
+   */
+  scanCode(code: string, fileName = 'script.js'): { safe: boolean; threats: string[]; riskLevel: 'low' | 'medium' | 'high' | 'critical' } {
+    const inspection = this.inspectPayload(code, fileName);
+    let riskLevel: 'low' | 'medium' | 'high' | 'critical' = 'low';
+
+    if (inspection.threats.some(t => t.includes('Destructive') || t.includes('Shell'))) {
+      riskLevel = 'critical';
+    } else if (inspection.threats.some(t => t.includes('Traversal') || t.includes('SSRF'))) {
+      riskLevel = 'high';
+    } else if (inspection.threats.length > 0) {
+      riskLevel = 'medium';
+    }
+
+    return {
+      safe: inspection.safe,
+      threats: inspection.threats,
+      riskLevel
+    };
+  }
+
+  /**
+   * Automated Security Regression Test Suite (BUG-013)
+   */
+  runSecuritySelfTests(): { id: string; name: string; category: string; passed: boolean; details: string; timestamp: number }[] {
+    const results: { id: string; name: string; category: string; passed: boolean; details: string; timestamp: number }[] = [];
+
+    // Test 1: SSRF Metadata Endpoint Blocking
+    const ssrfTest = this.inspectPayload('fetch("http://169.254.169.254/latest/meta-data")', 'test.js');
+    results.push({
+      id: 'SEC-TEST-001',
+      name: 'Cloud Metadata SSRF Protection',
+      category: 'waf',
+      passed: !ssrfTest.safe || this.blockedDomains.has('169.254.169.254'),
+      details: 'Blocks private IP and cloud metadata access.',
+      timestamp: Date.now()
+    });
+
+    // Test 2: Path Traversal Containment
+    const traversalTest = this.inspectPayload('fs.readFile("../../../../../etc/shadow")', 'test.js');
+    results.push({
+      id: 'SEC-TEST-002',
+      name: 'Path Traversal Guard',
+      category: 'sandbox',
+      passed: !traversalTest.safe,
+      details: 'Detects directory traversal payloads (../../).',
+      timestamp: Date.now()
+    });
+
+    // Test 3: Prototype Pollution Detection
+    const protoTest = this.inspectPayload('Object.prototype.isAdmin = true; __proto__.polluted = 1;', 'test.js');
+    results.push({
+      id: 'SEC-TEST-003',
+      name: 'Prototype Pollution Guard',
+      category: 'prototype',
+      passed: !protoTest.safe,
+      details: 'Detects prototype pollution via __proto__ and Object.prototype.',
+      timestamp: Date.now()
+    });
+
+    // Test 4: Destructive Command Injection Detection
+    const ciTest = this.inspectPayload('; rm -rf / ; bash -i >& /dev/tcp/', 'test.sh');
+    results.push({
+      id: 'SEC-TEST-004',
+      name: 'Destructive Command Injection Guard',
+      category: 'sandbox',
+      passed: !ciTest.safe,
+      details: 'Detects destructive system shell injections and reverse shells.',
+      timestamp: Date.now()
+    });
+
+    // Test 5: Secret Key Pattern Regex Scanner
+    const fakeSecretFile: FileItem[] = [{
+      id: 'test_sec',
+      name: 'config.ts',
+      path: '/config.ts',
+      language: 'typescript',
+      isFolder: false,
+      content: 'const key = "sk-abcdefghijklmnopqrstuvwxyz1234567890";'
+    }];
+    const secretFindings = this.scanForSecrets(fakeSecretFile);
+    results.push({
+      id: 'SEC-TEST-005',
+      name: 'DLP Secret & Credential Leak Scanner',
+      category: 'waf',
+      passed: secretFindings.length > 0,
+      details: 'Detects OpenAI and generic API key patterns in workspace files.',
+      timestamp: Date.now()
+    });
+
+    return results;
+  }
 }
 
 export const securityService = new SecurityService();

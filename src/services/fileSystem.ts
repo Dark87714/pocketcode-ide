@@ -78,7 +78,8 @@ export class FileSystemService {
       if (backupJson) {
         const backup = JSON.parse(backupJson);
         if (Array.isArray(backup) && backup.length > 0) {
-          this.files = backup;
+          const { files: migrated } = this.migrateWorkspaceData(backup);
+          this.files = migrated;
           this.syncProjectsIndex().catch(() => {});
           return this.files;
         }
@@ -89,7 +90,8 @@ export class FileSystemService {
     try {
       const stored = await get<FileItem[]>(projectStorageKey);
       if (stored && Array.isArray(stored) && stored.length > 0) {
-        this.files = stored;
+        const { files: migrated } = this.migrateWorkspaceData(stored);
+        this.files = migrated;
         this.saveToLocalStorage();
         this.syncProjectsIndex().catch(() => {});
         return this.files;
@@ -98,14 +100,23 @@ export class FileSystemService {
       console.warn('Failed to load from IndexedDB:', e);
     }
 
-    // 4. Try legacy storage key
+    // 4. Try legacy storage keys (v2, v1) for cross-version data migration (BUG-010)
     try {
-      const stored = await get<FileItem[]>(STORAGE_KEY);
-      if (stored && Array.isArray(stored) && stored.length > 0) {
-        this.files = stored;
-        this.saveWorkspace().catch(() => {});
-        this.syncProjectsIndex().catch(() => {});
-        return this.files;
+      const legacyKeys = [
+        STORAGE_KEY,
+        'pocketcode_workspace_files_v2',
+        'pocketcode_workspace_files',
+        'vscode_mobile_files_v1'
+      ];
+      for (const key of legacyKeys) {
+        const legacyStored = await get<any[]>(key);
+        if (legacyStored && Array.isArray(legacyStored) && legacyStored.length > 0) {
+          const { files: migrated } = this.migrateWorkspaceData(legacyStored);
+          this.files = migrated;
+          await this.saveWorkspace();
+          await this.syncProjectsIndex();
+          return this.files;
+        }
       }
     } catch (e) {}
 
@@ -122,6 +133,54 @@ export class FileSystemService {
     await this.saveWorkspace();
     await this.syncProjectsIndex();
     return this.files;
+  }
+
+  /**
+   * Workspace Data Migration & Self-Repair Framework (BUG-010)
+   */
+  migrateWorkspaceData(rawFiles: any[]): { files: FileItem[]; repairedCount: number } {
+    let repairedCount = 0;
+
+    const sanitizeNode = (item: any): FileItem => {
+      const isFolder = Boolean(item.isFolder);
+      const name = String(item.name || (isFolder ? 'folder' : 'untitled.txt'));
+      const path = String(item.path || name);
+      const id = String(item.id || `file_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`);
+      const language = item.language || getLanguageFromFilename(name);
+      const content = typeof item.content === 'string' ? item.content : '';
+
+      const node: FileItem = {
+        id,
+        name,
+        path,
+        content,
+        language,
+        isFolder
+      };
+
+      if (item.parentId) node.parentId = item.parentId;
+      if (typeof item.isExpanded === 'boolean') node.isExpanded = item.isExpanded;
+      if (typeof item.isModified === 'boolean') node.isModified = item.isModified;
+
+      if (isFolder && Array.isArray(item.children)) {
+        node.children = item.children.map((c: any) => {
+          c.parentId = id;
+          return sanitizeNode(c);
+        });
+      }
+
+      if (!item.id || !item.language || (isFolder && !node.children)) {
+        repairedCount++;
+      }
+
+      return node;
+    };
+
+    const sanitizedFiles = Array.isArray(rawFiles)
+      ? rawFiles.map(f => sanitizeNode(f))
+      : [];
+
+    return { files: sanitizedFiles, repairedCount };
   }
 
   getCurrentProjectId(): string {

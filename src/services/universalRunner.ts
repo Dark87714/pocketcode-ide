@@ -41,7 +41,14 @@ export class UniversalRunnerService {
 
     // 2. JAVASCRIPT & TYPESCRIPT
     if (lang === 'javascript' || lang === 'typescript' || ext === 'js' || ext === 'ts' || ext === 'mjs') {
-      onOutput(`⚡ Executing ${file.name} in V8 JavaScript Isolated Sandbox (Web Worker)...`, 'system');
+      // Static code security scan (BUG-006)
+      const scan = securityService.scanCode(file.content, file.name);
+      if (scan.riskLevel === 'critical') {
+        onOutput(`🛡️ [WAF CRITICAL BLOCK] Code execution aborted due to detected dangerous payload: ${scan.threats.join(', ')}`, 'stderr');
+        return { language: 'JavaScript', type: 'terminal', error: 'Blocked by Security WAF' };
+      }
+
+      onOutput(`⚡ Executing ${file.name} in V8 Isolated Sandbox (Web Worker)...`, 'system');
       try {
         const logs: string[] = [];
         
@@ -52,8 +59,30 @@ export class UniversalRunnerService {
         }
 
         return await new Promise<RunResult>((resolve) => {
+          // Hardened sandbox preamble (BUG-001, BUG-004)
           const workerCode = `
+            'use strict';
+            // Neutralize dangerous / exfiltration APIs inside worker sandbox
+            try {
+              self.importScripts = function() { throw new Error('Security Error: importScripts() is disabled in this sandbox environment.'); };
+              self.WebSocket = undefined;
+              self.EventSource = undefined;
+              self.XMLHttpRequest = undefined;
+              self.Worker = undefined;
+              self.SharedWorker = undefined;
+              self.BroadcastChannel = undefined;
+              self.MessageChannel = undefined;
+              self.Notification = undefined;
+              self.indexedDB = undefined;
+              self.caches = undefined;
+              self.openDatabase = undefined;
+              if (self.navigator) {
+                try { self.navigator.sendBeacon = undefined; } catch(e) {}
+              }
+            } catch(e) {}
+
             self.onmessage = async (e) => {
+              if (!e.data || typeof e.data !== 'object') return;
               const { code, wafEnabled, strictMode, blockedDomains, allowedDomains } = e.data;
               
               const customConsole = {
@@ -63,15 +92,16 @@ export class UniversalRunnerService {
                 table: (data) => self.postMessage({ type: 'stdout', msg: typeof data === 'object' ? JSON.stringify(data, null, 2) : String(data) })
               };
 
-              const originalFetch = fetch;
+              const originalFetch = typeof fetch === 'function' ? fetch : null;
               const sandboxedFetch = async (url, init) => {
+                if (!originalFetch) throw new Error('Fetch API is not available.');
                 if (wafEnabled) {
-                  const urlStr = typeof url === 'string' ? url : url.toString();
+                  const urlStr = typeof url === 'string' ? url : String(url);
+                  if (urlStr.toLowerCase().startsWith('javascript:') || urlStr.toLowerCase().startsWith('data:text/html')) {
+                    throw new Error('Dangerous URI scheme blocked by WAF');
+                  }
                   try {
-                    if (urlStr.toLowerCase().startsWith('javascript:') || urlStr.toLowerCase().startsWith('data:text/html')) {
-                      throw new Error('Dangerous URI scheme blocked by WAF');
-                    }
-                    const parsed = new URL(urlStr);
+                    const parsed = new URL(urlStr, 'https://localhost');
                     const hostname = parsed.hostname.toLowerCase();
                     const isPrivateIp = hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '0.0.0.0' || hostname === '169.254.169.254' || /^10\\.\\d+\\.\\d+\\.\\d+$/.test(hostname) || /^192\\.168\\.\\d+\\.\\d+$/.test(hostname) || /^172\\.(1[6-9]|2\\d|3[01])\\.\\d+\\.\\d+$/.test(hostname);
                     
@@ -85,7 +115,7 @@ export class UniversalRunnerService {
                       throw new Error('WAF Strict Mode: Domain is not in the allowed destinations list (' + hostname + ')');
                     }
                   } catch (err) {
-                    if (err.message.includes('WAF')) {
+                    if (err.message && err.message.includes('WAF')) {
                       throw new Error('[WAF Security Firewall] Blocked outbound request to: ' + urlStr + '. ' + err.message);
                     }
                   }
@@ -99,7 +129,7 @@ export class UniversalRunnerService {
                 await runner(customConsole, sandboxedFetch);
                 self.postMessage({ type: 'done' });
               } catch (err) {
-                self.postMessage({ type: 'error', error: err.message, stack: err.stack });
+                self.postMessage({ type: 'error', error: err ? String(err.message || err) : 'Runtime Error', stack: err ? err.stack : '' });
               }
             };
           `;
@@ -108,29 +138,56 @@ export class UniversalRunnerService {
           const workerUrl = URL.createObjectURL(blob);
           const worker = new Worker(workerUrl);
 
-          worker.onmessage = (e) => {
+          let isCleanedUp = false;
+          let watchdogTimer: any = null;
+
+          const cleanup = () => {
+            if (isCleanedUp) return;
+            isCleanedUp = true;
+            if (watchdogTimer) clearTimeout(watchdogTimer);
+            try { worker.terminate(); } catch(e) {}
+            try { URL.revokeObjectURL(workerUrl); } catch(e) {}
+          };
+
+          // Watchdog execution timeout: 10 seconds (BUG-002)
+          watchdogTimer = setTimeout(() => {
+            onOutput(`⏱️ [Execution Timeout] Process exceeded 10s runtime limit. Terminated infinite loop or long-running task.`, 'stderr');
+            cleanup();
+            resolve({ language: 'JavaScript', type: 'terminal', error: 'Execution Timed Out (10s limit)' });
+          }, 10000);
+
+          worker.onmessage = (e: MessageEvent) => {
+            // Strong message validation (BUG-007)
             const data = e.data;
-            if (data.type === 'stdout') {
+            if (!data || typeof data !== 'object') return;
+
+            if (data.type === 'stdout' && typeof data.msg === 'string') {
               logs.push(data.msg);
               onOutput(data.msg, 'stdout');
-            } else if (data.type === 'stderr') {
+            } else if (data.type === 'stderr' && typeof data.msg === 'string') {
               logs.push(data.msg);
               onOutput(data.msg, 'stderr');
             } else if (data.type === 'error') {
-              onOutput(`❌ Runtime Error: ${data.error}\n${data.stack || ''}`, 'stderr');
-              worker.terminate();
-              URL.revokeObjectURL(workerUrl);
-              resolve({ language: 'JavaScript', type: 'terminal', error: data.error });
+              const errMsg = typeof data.error === 'string' ? data.error : 'Unknown runtime error';
+              onOutput(`❌ Runtime Error: ${errMsg}\n${data.stack || ''}`, 'stderr');
+              cleanup();
+              resolve({ language: 'JavaScript', type: 'terminal', error: errMsg });
             } else if (data.type === 'done') {
               if (logs.length === 0) {
                 onOutput(`✅ Script executed cleanly (0 console outputs).`, 'system');
               } else {
                 onOutput(`\n✨ Process completed with exit code 0.`, 'system');
               }
-              worker.terminate();
-              URL.revokeObjectURL(workerUrl);
+              cleanup();
               resolve({ language: 'JavaScript', type: 'terminal', output: logs });
             }
+          };
+
+          worker.onerror = (err: ErrorEvent) => {
+            const msg = err.message || 'Worker thread execution failure';
+            onOutput(`❌ Sandbox Execution Crash: ${msg}`, 'stderr');
+            cleanup();
+            resolve({ language: 'JavaScript', type: 'terminal', error: msg });
           };
           
           worker.postMessage({
