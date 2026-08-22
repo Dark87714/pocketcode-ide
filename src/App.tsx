@@ -24,6 +24,7 @@ const LivePreview = lazy(() => import('./components/PreviewModal/LivePreview').t
 const CommandPalette = lazy(() => import('./components/CommandPalette/CommandPalette').then(m => ({ default: m.CommandPalette })));
 const TemplatesModal = lazy(() => import('./components/Modals/TemplatesModal').then(m => ({ default: m.TemplatesModal })));
 const NewProjectModal = lazy(() => import('./components/Modals/NewProjectModal').then(m => ({ default: m.NewProjectModal })));
+const FeedbackModal = lazy(() => import('./components/Modals/FeedbackModal').then(m => ({ default: m.FeedbackModal })));
 const DiffEditor = lazy(() => import('./components/Editor/DiffEditor').then(m => ({ default: m.DiffEditor })));
 const MediaViewer = lazy(() => import('./components/Editor/MediaViewer').then(m => ({ default: m.MediaViewer })));
 
@@ -84,6 +85,7 @@ export function App() {
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
   const [isTemplatesModalOpen, setIsTemplatesModalOpen] = useState(false);
   const [isNewProjectModalOpen, setIsNewProjectModalOpen] = useState(false);
+  const [isFeedbackModalOpen, setIsFeedbackModalOpen] = useState(false);
   const [settings, setSettings] = useState<EditorSettings>(DEFAULT_SETTINGS);
   const [problems, setProblems] = useState<DiagnosticProblem[]>([]);
   const [outputLogs, setOutputLogs] = useState<string[]>([]);
@@ -692,6 +694,7 @@ export function App() {
         onToggleTerminal={() => setIsTerminalOpen(!isTerminalOpen)}
         onOpenTemplates={() => setIsTemplatesModalOpen(true)}
         onOpenNewProject={() => setIsNewProjectModalOpen(true)}
+        onOpenFeedback={() => setIsFeedbackModalOpen(true)}
         onExportZip={handleExportZip}
         onImportZip={() => {}}
         onUndo={handleUndo}
@@ -1022,6 +1025,13 @@ export function App() {
           />
         </Suspense>
       )}
+
+      <Suspense fallback={null}>
+        <FeedbackModal
+          isOpen={isFeedbackModalOpen}
+          onClose={() => setIsFeedbackModalOpen(false)}
+        />
+      </Suspense>
 
       {/* Start New Project Modal */}
       {isNewProjectModalOpen && (

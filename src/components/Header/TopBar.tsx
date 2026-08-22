@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { 
   Play, Command, Terminal, FolderGit2,
   Menu, Download, Code, Layers, Columns2, Search,
-  Undo2, Redo2, Wand2, MoreHorizontal, Check
+  Undo2, Redo2, Wand2, MoreHorizontal, Check, MessageSquare
 } from 'lucide-react';
 
 interface TopBarProps {
@@ -26,6 +26,7 @@ interface TopBarProps {
   activeFileName?: string;
   projectName?: string;
   onOpenNewProject?: () => void;
+  onOpenFeedback?: () => void;
 }
 
 export const TopBar: React.FC<TopBarProps> = ({
@@ -46,7 +47,8 @@ export const TopBar: React.FC<TopBarProps> = ({
   isTerminalOpen,
   activeFileName,
   projectName,
-  onOpenNewProject
+  onOpenNewProject,
+  onOpenFeedback
 }) => {
   const [isMoreMenuOpen, setIsMoreMenuOpen] = useState(false);
   const moreMenuRef = useRef<HTMLDivElement>(null);
@@ -365,6 +367,19 @@ export const TopBar: React.FC<TopBarProps> = ({
                   <Layers size={14} className="text-emerald-400" />
                   <span>Templates & Starters</span>
                 </button>
+
+                {onOpenFeedback && (
+                  <button
+                    onClick={() => {
+                      setIsMoreMenuOpen(false);
+                      onOpenFeedback();
+                    }}
+                    className="w-full px-3 py-1.5 hover:bg-[#007acc] hover:text-white flex items-center gap-2 text-left transition-colors"
+                  >
+                    <MessageSquare size={14} className="text-pink-400" />
+                    <span>Provide Feedback</span>
+                  </button>
+                )}
 
                 <button
                   onClick={() => {
