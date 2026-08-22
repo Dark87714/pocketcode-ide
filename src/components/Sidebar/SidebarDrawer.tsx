@@ -28,7 +28,7 @@ interface SidebarDrawerProps {
   onToggleFolder: (folderId: string) => void;
   onOpenTemplates: () => void;
   onExportZip: () => void;
-  onReplaceInFile: (fileId: string, search: string, replace: string) => void;
+  onReplaceInFile: (fileId: string, search: string, replace: string, matchCase?: boolean, isRegex?: boolean) => void;
   onRunPreview: () => void;
   onRunPython: () => void;
   onOpenTerminal: () => void;

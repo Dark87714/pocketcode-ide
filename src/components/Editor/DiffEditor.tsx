@@ -30,6 +30,13 @@ export const DiffEditor: React.FC<DiffEditorProps> = ({
   const handleMount = (editor: any, monaco: any) => {
     diffEditorRef.current = editor;
 
+    // Define custom themes
+    THEMES.forEach((theme) => {
+      if (theme.monacoData) {
+        monaco.editor.defineTheme(theme.monacoTheme, theme.monacoData);
+      }
+    });
+
     // Set active theme
     const activeThemeObj = THEMES.find((t) => t.id === settings.theme) || THEMES[0];
     monaco.editor.setTheme(activeThemeObj.monacoTheme);
@@ -80,7 +87,7 @@ export const DiffEditor: React.FC<DiffEditorProps> = ({
           original={originalContent}
           modified={modifiedContent}
           onMount={handleMount}
-          theme={settings.theme === 'dracula' ? 'dracula' : settings.theme === 'tokyo-night' ? 'tokyo-night' : settings.theme === 'synthwave84' ? 'synthwave' : 'vs-dark'}
+          theme={THEMES.find((t) => t.id === settings.theme)?.monacoTheme || 'vs-dark'}
           options={{
             renderSideBySide: !isInline,
             readOnly: true,

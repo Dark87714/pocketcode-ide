@@ -7,6 +7,7 @@ import { fileSystemService } from './services/fileSystem';
 import { themeService } from './services/themeService';
 import { universalRunnerService } from './services/universalRunner';
 import { formatterService } from './services/formatterService';
+import { PROJECT_TEMPLATES } from './services/templates';
 import { TopBar } from './components/Header/TopBar';
 import { ActivityBar } from './components/Sidebar/ActivityBar';
 import { SidebarDrawer } from './components/Sidebar/SidebarDrawer';
@@ -230,7 +231,7 @@ export function App() {
     };
     window.addEventListener('beforeunload', handleBeforeUnload);
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
-  }, [files]);
+  }, []);
 
   // Global Keyboard Shortcuts
   useEffect(() => {
@@ -371,10 +372,13 @@ export function App() {
   const handleEditorChange = (newContent: string) => {
     if (!activeTab || !activeFile) return;
 
-    setFiles(prev => updateContentInTree(prev, activeTab.fileId, newContent));
-    fileSystemService.updateFileContent(activeTab.fileId, newContent);
+    const currentTabId = activeTabId;
+    const currentFileId = activeTab.fileId;
 
-    setTabs(prev => prev.map(t => t.id === activeTabId ? { ...t, isModified: true } : t));
+    setFiles(prev => updateContentInTree(prev, currentFileId, newContent));
+    fileSystemService.updateFileContent(currentFileId, newContent);
+
+    setTabs(prev => prev.map(t => t.id === currentTabId ? { ...t, isModified: true } : t));
 
     if (settings.autoSave) {
       setSaveStatus('saving');
@@ -382,7 +386,7 @@ export function App() {
       autoSaveTimerRef.current = setTimeout(async () => {
         await fileSystemService.saveWorkspace();
         setSaveStatus('saved');
-        setTabs(prev => prev.map(t => t.id === activeTabId ? { ...t, isModified: false } : t));
+        setTabs(prev => prev.map(t => t.id === currentTabId ? { ...t, isModified: false } : t));
       }, 350);
     }
   };
@@ -411,6 +415,9 @@ export function App() {
     if (activeTab?.fileId === fileId) {
       setActiveTabId(null);
     }
+    if (splitActiveTab?.fileId === fileId) {
+      setSplitActiveTabId(null);
+    }
   };
 
   const handleRenameFile = async (fileId: string, newName: string) => {
@@ -428,11 +435,14 @@ export function App() {
   };
 
   const handleSelectTemplate = async (template: any) => {
-    const loadedFiles = await fileSystemService.loadTemplate(template);
+    const templateObj = typeof template === 'string'
+      ? (PROJECT_TEMPLATES.find(t => t.id === template) || PROJECT_TEMPLATES[0])
+      : template;
+    const loadedFiles = await fileSystemService.loadTemplate(templateObj);
     setFiles(loadedFiles);
-    setCurrentProjectName(template.name || 'Template Project');
+    setCurrentProjectName(templateObj.name || 'Template Project');
     const flat = fileSystemService.getAllFlatFiles();
-    const entry = flat.find(f => f.name === template.entryFile) || flat.find(f => !f.isFolder) || flat[0];
+    const entry = flat.find(f => f.name === templateObj.entryFile) || flat.find(f => !f.isFolder) || flat[0];
     if (entry && !entry.isFolder) {
       setTabs([]);
       openFile(entry);
@@ -455,11 +465,32 @@ export function App() {
     await fileSystemService.downloadProjectZip();
   };
 
-  const handleReplaceInFile = (fileId: string, search: string, replace: string) => {
+  const handleReplaceInFile = (fileId: string, search: string, replace: string, matchCase: boolean = true, isRegex: boolean = false) => {
     const file = fileSystemService.getFileById(fileId);
     if (!file || file.isFolder) return;
-    const newContent = file.content.split(search).join(replace);
-    handleEditorChange(newContent);
+    const currentContent = file.content || '';
+    let newContent = currentContent;
+    if (isRegex) {
+      try {
+        const rx = new RegExp(search, matchCase ? 'g' : 'gi');
+        newContent = currentContent.replace(rx, replace);
+      } catch (e) {
+        newContent = currentContent.split(search).join(replace);
+      }
+    } else if (!matchCase) {
+      const rx = new RegExp(search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
+      newContent = currentContent.replace(rx, replace);
+    } else {
+      newContent = currentContent.split(search).join(replace);
+    }
+
+    if (activeTab?.fileId === fileId) {
+      handleEditorChange(newContent);
+    } else {
+      setFiles(prev => updateContentInTree(prev, fileId, newContent));
+      fileSystemService.updateFileContent(fileId, newContent);
+      fileSystemService.saveWorkspace();
+    }
   };
 
   const handleInsertTextToEditor = (text: string) => {
@@ -499,9 +530,8 @@ export function App() {
   const handleFormatDocument = () => {
     if (!activeFile || !editorInstanceRef.current) return;
     const formatted = formatterService.formatCode(activeFile.content, activeFile.language);
-    handleEditorChange(formatted);
     const model = editorInstanceRef.current.getModel();
-    if (model) {
+    if (model && model.getValue() !== formatted) {
       editorInstanceRef.current.executeEdits('format', [{
         range: model.getFullModelRange(),
         text: formatted
@@ -611,8 +641,9 @@ export function App() {
     window.dispatchEvent(new CustomEvent('pocketcode:terminal-run-command', { detail: cmd }));
 
     // Stream directly to Output panel
-    await universalRunnerService.runFile(activeFile, (line) => {
-      setOutputLogs(prev => [...prev, line]);
+    await universalRunnerService.runFile(activeFile, (line, type) => {
+      const prefix = type === 'stderr' ? '❌ ' : type === 'system' ? '⚡ ' : '';
+      setOutputLogs(prev => [...prev, `${prefix}${line}`]);
     });
   };
 
@@ -935,6 +966,7 @@ export function App() {
             onToggleExpand={() => setIsBottomDrawerExpanded(!isBottomDrawerExpanded)}
             onClose={() => setIsTerminalOpen(false)}
             onClearLogs={() => setOutputLogs([])}
+            onJumpToLine={handleJumpToLine}
           />
         </div>
       </div>
@@ -1026,12 +1058,14 @@ export function App() {
         </Suspense>
       )}
 
-      <Suspense fallback={null}>
-        <FeedbackModal
-          isOpen={isFeedbackModalOpen}
-          onClose={() => setIsFeedbackModalOpen(false)}
-        />
-      </Suspense>
+      {isFeedbackModalOpen && (
+        <Suspense fallback={null}>
+          <FeedbackModal
+            isOpen={isFeedbackModalOpen}
+            onClose={() => setIsFeedbackModalOpen(false)}
+          />
+        </Suspense>
+      )}
 
       {/* Start New Project Modal */}
       {isNewProjectModalOpen && (

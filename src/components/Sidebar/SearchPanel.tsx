@@ -6,7 +6,7 @@ import { getTabIcon } from '../Editor/EditorTabs';
 interface SearchPanelProps {
   files: FileItem[];
   onOpenFile: (file: FileItem) => void;
-  onReplaceInFile: (fileId: string, search: string, replace: string) => void;
+  onReplaceInFile: (fileId: string, search: string, replace: string, matchCase?: boolean, isRegex?: boolean) => void;
 }
 
 function getAllFlat(items: FileItem[]): FileItem[] {
@@ -43,7 +43,9 @@ export const SearchPanel: React.FC<SearchPanelProps> = ({
     if (!searchQuery.trim()) return [];
 
     const results: { file: FileItem; matches: SearchMatch[] }[] = [];
-    const allFiles = files.length > 0 ? (files.some(f => f.isFolder) ? getAllFlat(files) : files) : [];
+    // B9 fix: always call getAllFlat to traverse the full tree; the old heuristic
+    // could miss root-level files or double-count them when sub-folders are present.
+    const allFiles = getAllFlat(files);
 
     allFiles.forEach((file) => {
       if (file.isFolder || !file.content) return;
@@ -88,7 +90,7 @@ export const SearchPanel: React.FC<SearchPanelProps> = ({
   const handleReplaceAll = () => {
     if (!searchQuery) return;
     results.forEach((r) => {
-      onReplaceInFile(r.file.id, searchQuery, replaceQuery);
+      onReplaceInFile(r.file.id, searchQuery, replaceQuery, matchCase, useRegex);
     });
   };
 

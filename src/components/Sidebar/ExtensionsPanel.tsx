@@ -4,7 +4,8 @@ import {
   Trash2, ToggleLeft, ToggleRight, MoreVertical, Upload,
   X, ExternalLink, ShieldCheck, Tag, Code2, Palette, Terminal
 } from 'lucide-react';
-import confetti from 'canvas-confetti';
+// B14 fix: lazy-load canvas-confetti via dynamic import to avoid a static-import
+// failure on mobile browsers that don't support <canvas> well.
 import { extensionService } from '../../services/extensionService';
 import { ExtensionItem } from '../../types';
 
@@ -74,8 +75,9 @@ export const ExtensionsPanel: React.FC<ExtensionsPanelProps> = ({ onSelectTheme 
         setDownloadStatus(status);
       });
 
-      // Confetti effect
+      // Confetti effect - dynamically imported to avoid static module failure
       try {
+        const confetti = (await import('canvas-confetti')).default;
         confetti({
           particleCount: 40,
           spread: 60,
@@ -131,6 +133,7 @@ export const ExtensionsPanel: React.FC<ExtensionsPanelProps> = ({ onSelectTheme 
       setSelectedExt(installed);
 
       try {
+        const confetti = (await import('canvas-confetti')).default;
         confetti({ particleCount: 50, spread: 70 });
       } catch (err) {}
     } catch (err: any) {

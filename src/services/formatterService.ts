@@ -39,6 +39,13 @@ export class FormatterService {
     }
   }
 
+  private stripStringsAndComments(line: string): string {
+    return line
+      .replace(/\/\*.*?\*\//g, '')
+      .replace(/\/\/.*$/, '')
+      .replace(/(["'`])(?:\\.|[^\\])*?\1/g, '""');
+  }
+
   private formatJS(code: string): string {
     const lines = code.split('\n');
     let indent = 0;
@@ -58,10 +65,11 @@ export class FormatterService {
 
       formatted.push('  '.repeat(indent) + trimmed);
 
-      // Increase indent if opening bracket without immediate close
-      const opens = (trimmed.match(/[\{\[\(]/g) || []).length;
-      const closes = (trimmed.match(/[\}\]\)]/g) || []).length;
-      if (opens > closes && !trimmed.startsWith('//')) {
+      // Increase indent if opening bracket without immediate close (ignoring strings & comments)
+      const stripped = this.stripStringsAndComments(trimmed);
+      const opens = (stripped.match(/[\{\[\(]/g) || []).length;
+      const closes = (stripped.match(/[\}\]\)]/g) || []).length;
+      if (opens > closes) {
         indent += (opens - closes);
       }
     });

@@ -251,7 +251,29 @@ export const THEMES: IDETheme[] = [
     activityBg: '#181c21',
     statusBarBg: '#316dca',
     accent: '#539bf5',
-    monacoTheme: 'vs-dark'
+    monacoTheme: 'github-dark',
+    // B13 fix: monacoData was missing, so editor token colors never matched the GitHub
+    // Dark Dimmed palette. Sidebar/background changed but editor stayed VS Code Dark.
+    monacoData: {
+      base: 'vs-dark',
+      inherit: true,
+      rules: [
+        { token: 'comment', foreground: '768390', fontStyle: 'italic' },
+        { token: 'keyword', foreground: 'f47067' },
+        { token: 'string', foreground: '96d0ff' },
+        { token: 'number', foreground: '6cb6ff' },
+        { token: 'function', foreground: 'dcbdfb' },
+        { token: 'variable', foreground: 'adbac7' },
+        { token: 'type', foreground: '8ddb8c' },
+      ],
+      colors: {
+        'editor.background': '#22272e',
+        'editor.foreground': '#adbac7',
+        'editor.lineHighlightBackground': '#2d333b',
+        'editorCursor.foreground': '#539bf5',
+        'editor.selectionBackground': '#3a4b6333',
+      }
+    }
   }
 ];
 

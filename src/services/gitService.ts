@@ -146,7 +146,9 @@ export class GitService {
 
   commit(message: string): GitCommit {
     const changed = Array.from(this.stagedFiles);
-    const hash = Math.random().toString(16).substring(2, 9);
+    const hash = typeof crypto !== 'undefined' && crypto.randomUUID 
+      ? crypto.randomUUID().replace(/-/g, '').substring(0, 7)
+      : Math.random().toString(16).substring(2, 9).padEnd(7, '0');
     const newCommit: GitCommit = {
       id: `commit_${Date.now()}`,
       hash,
@@ -164,6 +166,11 @@ export class GitService {
     allFiles.forEach(f => {
       f.isModified = false;
     });
+
+    fileSystemService.saveWorkspace();
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('pocketcode:workspace-changed'));
+    }
 
     return newCommit;
   }

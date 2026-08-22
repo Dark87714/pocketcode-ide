@@ -90,7 +90,8 @@ export function extractSymbols(content: string, language: string = 'javascript')
 
       const pyFunc = trimmed.match(/^(?:async\s+)?def\s+([a-zA-Z0-9_]+)\s*\(([^)]*)\):/);
       if (pyFunc) {
-        const isMethod = line.startsWith('    ') || line.startsWith('\t');
+        const indentLevel = line.length - line.trimStart().length;
+        const isMethod = indentLevel > 0;
         symbols.push({ 
           name: pyFunc[1], 
           kind: isMethod ? 'method' : 'function', 

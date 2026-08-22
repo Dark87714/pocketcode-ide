@@ -129,12 +129,16 @@ export const SourceControl: React.FC<SourceControlProps> = ({ onOpenDiff }) => {
                 <div className="text-[11px] text-[#666666] italic pl-2">No staged changes</div>
               ) : (
                 status.staged.map((f) => (
-                  <div key={f} className="flex items-center justify-between py-1 px-2 rounded bg-[#1e1e1e] hover:bg-[#2d2d2d] group">
-                    <div className="flex items-center gap-1.5 truncate">
+                  <div key={f} className="flex items-center justify-between py-1 px-2 rounded bg-[#1e1e1e] hover:bg-[#2d2d2d] group cursor-pointer">
+                    <div 
+                      onClick={() => onOpenDiff?.(f)}
+                      className="flex items-center gap-1.5 truncate flex-1"
+                      title="Click to view diff"
+                    >
                       {getTabIcon(f)}
                       <span className="truncate text-emerald-400">{f}</span>
                     </div>
-                    <button onClick={() => handleUnstageFile(f)} className="p-0.5 rounded hover:bg-[#3c3c3c] text-[#858585]">
+                    <button onClick={(e) => { e.stopPropagation(); handleUnstageFile(f); }} className="p-0.5 rounded hover:bg-[#3c3c3c] text-[#858585]">
                       <Minus size={12} />
                     </button>
                   </div>
@@ -156,12 +160,16 @@ export const SourceControl: React.FC<SourceControlProps> = ({ onOpenDiff }) => {
                 <div className="text-[11px] text-[#666666] italic pl-2">Working tree clean</div>
               ) : (
                 status.modified.map((f) => (
-                  <div key={f} className="flex items-center justify-between py-1 px-2 rounded bg-[#1e1e1e] hover:bg-[#2d2d2d] group">
-                    <div className="flex items-center gap-1.5 truncate">
+                  <div key={f} className="flex items-center justify-between py-1 px-2 rounded bg-[#1e1e1e] hover:bg-[#2d2d2d] group cursor-pointer">
+                    <div 
+                      onClick={() => onOpenDiff?.(f)}
+                      className="flex items-center gap-1.5 truncate flex-1"
+                      title="Click to view diff"
+                    >
                       {getTabIcon(f)}
                       <span className="truncate text-amber-400">{f}</span>
                     </div>
-                    <button onClick={() => handleStageFile(f)} className="p-0.5 rounded hover:bg-[#3c3c3c] text-[#858585]">
+                    <button onClick={(e) => { e.stopPropagation(); handleStageFile(f); }} className="p-0.5 rounded hover:bg-[#3c3c3c] text-[#858585]">
                       <Plus size={12} />
                     </button>
                   </div>

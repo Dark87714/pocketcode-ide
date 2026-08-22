@@ -195,46 +195,51 @@ sys.modules['torch'] = torch_module
 
 export class PyodideService {
   private pyodideInstance: any = null;
-  private isLoading = false;
   private isReady = false;
+  private initPromise: Promise<boolean> | null = null;
   private installedPackages = new Set<string>();
 
   async init(onOutput?: (text: string) => void): Promise<boolean> {
     if (this.isReady) return true;
-    if (this.isLoading) return false;
-
-    this.isLoading = true;
-    onOutput?.('⏳ Initializing Pyodide Python 3.11 WASM Engine...\n');
-
-    try {
-      if (typeof window.loadPyodide !== 'function') {
-        await new Promise((resolve, reject) => {
-          const script = document.createElement('script');
-          script.src = 'https://cdn.jsdelivr.net/pyodide/v0.26.2/full/pyodide.js';
-          script.onload = resolve;
-          script.onerror = reject;
-          document.head.appendChild(script);
-        });
-      }
-
-      this.pyodideInstance = await window.loadPyodide!({
-        indexURL: 'https://cdn.jsdelivr.net/pyodide/v0.26.2/full/'
-      });
-
-      // Inject PyTorch WASM polyfill directly into environment
-      await this.pyodideInstance.runPythonAsync(PYTORCH_WASM_POLYFILL);
-      this.installedPackages.add('torch');
-      this.installedPackages.add('pytorch');
-
-      this.isReady = true;
-      this.isLoading = false;
-      onOutput?.('✨ Python WebAssembly runtime & PyTorch ML Engine loaded!\n\n');
-      return true;
-    } catch (e: any) {
-      this.isLoading = false;
-      onOutput?.(`❌ Failed to initialize Pyodide: ${e.message}\n`);
-      return false;
+    if (this.initPromise) {
+      return this.initPromise;
     }
+
+    this.initPromise = (async () => {
+      onOutput?.('⏳ Initializing Pyodide Python 3.11 WASM Engine...\n');
+
+      try {
+        if (typeof window.loadPyodide !== 'function') {
+          await new Promise((resolve, reject) => {
+            const script = document.createElement('script');
+            script.src = 'https://cdn.jsdelivr.net/pyodide/v0.26.2/full/pyodide.js';
+            script.onload = resolve;
+            script.onerror = reject;
+            document.head.appendChild(script);
+          });
+        }
+
+        this.pyodideInstance = await window.loadPyodide!({
+          indexURL: 'https://cdn.jsdelivr.net/pyodide/v0.26.2/full/'
+        });
+
+        // Inject PyTorch WASM polyfill directly into environment
+        await this.pyodideInstance.runPythonAsync(PYTORCH_WASM_POLYFILL);
+        this.installedPackages.add('torch');
+        this.installedPackages.add('pytorch');
+
+        this.isReady = true;
+        this.initPromise = null;
+        onOutput?.('✨ Python WebAssembly runtime & PyTorch ML Engine loaded!\n\n');
+        return true;
+      } catch (e: any) {
+        this.initPromise = null;
+        onOutput?.(`❌ Failed to initialize Pyodide: ${e.message}\n`);
+        return false;
+      }
+    })();
+
+    return this.initPromise;
   }
 
   async initPyodide(): Promise<boolean> {

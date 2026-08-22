@@ -18,6 +18,7 @@ interface BottomDrawerProps {
   onToggleExpand: () => void;
   onClose: () => void;
   onClearLogs: () => void;
+  onJumpToLine?: (line: number) => void;
 }
 
 export const BottomDrawer: React.FC<BottomDrawerProps> = ({
@@ -29,7 +30,8 @@ export const BottomDrawer: React.FC<BottomDrawerProps> = ({
   onSelectTab,
   onToggleExpand,
   onClose,
-  onClearLogs
+  onClearLogs,
+  onJumpToLine
 }) => {
   if (!isOpen) return null;
 
@@ -126,7 +128,7 @@ export const BottomDrawer: React.FC<BottomDrawerProps> = ({
       <div className="flex-1 overflow-hidden relative">
         {activeTab === 'terminal' && <TerminalPanel />}
         {activeTab === 'problems' && (
-          <ProblemsPanel problems={problems} onSelectProblem={() => {}} />
+          <ProblemsPanel problems={problems} onSelectProblem={(p) => onJumpToLine?.(p.line)} />
         )}
         {activeTab === 'output' && <OutputPanel logs={logs} onClear={onClearLogs} />}
         {activeTab === 'debug' && (

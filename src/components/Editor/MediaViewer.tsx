@@ -15,13 +15,13 @@ export const MediaViewer: React.FC<MediaViewerProps> = ({ file, onEditSource }) 
   const isSvg = ext === 'svg';
   const isAudio = ['mp3', 'wav', 'ogg', 'aac'].includes(ext);
 
-  // Prepare image source
-  let src = file.content;
-  if (!src.startsWith('data:') && !src.startsWith('http') && !src.startsWith('blob:')) {
+  // Prepare image source safely
+  let src = file.content || '';
+  if (src && !src.startsWith('data:') && !src.startsWith('http') && !src.startsWith('blob:')) {
     if (isSvg) {
-      src = `data:image/svg+xml;utf8,${encodeURIComponent(file.content)}`;
+      src = `data:image/svg+xml;utf8,${encodeURIComponent(src)}`;
     } else {
-      src = `data:image/${ext};base64,${file.content}`;
+      src = `data:image/${ext};base64,${src}`;
     }
   }
 

@@ -92,7 +92,7 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({
         value={content}
         onChange={handleChange}
         onMount={handleEditorDidMount}
-        theme={settings.theme === 'dracula' ? 'dracula' : settings.theme === 'tokyo-night' ? 'tokyo-night' : settings.theme === 'synthwave84' ? 'synthwave' : 'vs-dark'}
+        theme={THEMES.find((t) => t.id === settings.theme)?.monacoTheme || 'vs-dark'}
         options={{
           fontSize: settings.fontSize || 14,
           fontFamily: settings.fontFamily || '"Fira Code", Consolas, monospace',

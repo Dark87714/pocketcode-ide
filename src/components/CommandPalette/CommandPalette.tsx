@@ -220,12 +220,23 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
     }
   ];
 
-  // Also include files for quick jump
-  const fileCommands: CommandItem[] = files
-    .filter((f) => !f.isFolder)
+  // Also include files for quick jump (recursively flattened across all folders)
+  const getAllFlatFiles = (items: FileItem[]): FileItem[] => {
+    const flat: FileItem[] = [];
+    const traverse = (list: FileItem[]) => {
+      for (const item of list) {
+        if (!item.isFolder) flat.push(item);
+        if (item.children && item.children.length > 0) traverse(item.children);
+      }
+    };
+    traverse(items);
+    return flat;
+  };
+
+  const fileCommands: CommandItem[] = getAllFlatFiles(files)
     .map((f) => ({
       id: `cmd_file_${f.id}`,
-      title: `Go to File: ${f.name}`,
+      title: `Go to File: ${f.path || f.name}`,
       category: 'Files',
       icon: <Files size={14} className="text-sky-300" />,
       action: () => onOpenFile(f)

@@ -24,16 +24,35 @@ export class WebPreviewService {
     return flat;
   }
 
+  private escapeScriptContent(content: string): string {
+    return content.replace(/<\/script/gi, '<\\/script');
+  }
+
+  private escapeStyleContent(content: string): string {
+    return content.replace(/<\/style/gi, '<\\/style');
+  }
+
   buildPreviewHtml(files: FileItem[]): string {
     const flatFiles = this.getFlatFiles(files);
+    const linkedPaths = new Set<string>();
 
     // Find main HTML entry
-    let indexHtml = flatFiles.find(f => f.name === 'index.html' || f.name.endsWith('.html'))?.content || '';
+    const indexFile = flatFiles.find(f => f.name === 'index.html' || f.name.endsWith('.html'));
+    let indexHtml = indexFile?.content || '';
+    if (indexFile) {
+      linkedPaths.add(indexFile.path);
+    }
 
     if (!indexHtml) {
       // Find all CSS and JS
-      const cssContent = flatFiles.filter(f => f.name.endsWith('.css')).map(f => f.content).join('\n\n');
-      const jsContent = flatFiles.filter(f => f.name.endsWith('.js') || f.name.endsWith('.ts')).map(f => f.content).join('\n\n');
+      const cssFiles = flatFiles.filter(f => f.name.endsWith('.css'));
+      const jsFiles = flatFiles.filter(f => f.name.endsWith('.js') || f.name.endsWith('.ts'));
+
+      cssFiles.forEach(f => linkedPaths.add(f.path));
+      jsFiles.forEach(f => linkedPaths.add(f.path));
+
+      const cssContent = cssFiles.map(f => this.escapeStyleContent(f.content)).join('\n\n');
+      const jsContent = jsFiles.map(f => this.escapeScriptContent(f.content)).join('\n\n');
 
       indexHtml = `<!DOCTYPE html>
 <html lang="en">
@@ -115,29 +134,33 @@ export class WebPreviewService {
 
     // Dynamically replace external script references with workspace files
     flatFiles.forEach(file => {
+      const escapedFileName = file.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
       if (file.name.endsWith('.js') || file.name.endsWith('.ts')) {
-        const fileNameOnly = file.name;
         // Replace <script src="game.js"></script> or <script src="./game.js"></script> or <script src="/game.js"></script>
-        const scriptRegex = new RegExp(`<script[^>]*src=["'](\\.\\/|\\/)?${fileNameOnly}["'][^>]*>\\s*<\\/script>`, 'gi');
+        const scriptRegex = new RegExp(`<script[^>]*src=["'](?:\\.\\/|\\/)?${escapedFileName}["'][^>]*>\\s*<\\/script>`, 'i');
         if (scriptRegex.test(combinedHtml)) {
-          combinedHtml = combinedHtml.replace(scriptRegex, `<script>\n// [Inline: ${file.path}]\n${file.content}\n</script>`);
+          linkedPaths.add(file.path);
+          const globalScriptRegex = new RegExp(`<script[^>]*src=["'](?:\\.\\/|\\/)?${escapedFileName}["'][^>]*>\\s*<\\/script>`, 'gi');
+          combinedHtml = combinedHtml.replace(globalScriptRegex, `<script>\n// [Inline: ${file.path}]\n${this.escapeScriptContent(file.content)}\n</script>`);
         }
       }
 
       if (file.name.endsWith('.css')) {
-        const fileNameOnly = file.name;
         // Replace <link rel="stylesheet" href="style.css">
-        const linkRegex = new RegExp(`<link[^>]*href=["'](\\.\\/|\\/)?${fileNameOnly}["'][^>]*>`, 'gi');
+        const linkRegex = new RegExp(`<link[^>]*href=["'](?:\\.\\/|\\/)?${escapedFileName}["'][^>]*>`, 'i');
         if (linkRegex.test(combinedHtml)) {
-          combinedHtml = combinedHtml.replace(linkRegex, `<style>\n/* [Inline: ${file.path}] */\n${file.content}\n</style>`);
+          linkedPaths.add(file.path);
+          const globalLinkRegex = new RegExp(`<link[^>]*href=["'](?:\\.\\/|\\/)?${escapedFileName}["'][^>]*>`, 'gi');
+          combinedHtml = combinedHtml.replace(globalLinkRegex, `<style>\n/* [Inline: ${file.path}] */\n${this.escapeStyleContent(file.content)}\n</style>`);
         }
       }
     });
 
     // Fallback: If CSS or JS was not explicitly replaced, inline unlinked styles and scripts
-    const unlinkedCss = flatFiles.filter(f => f.name.endsWith('.css') && !combinedHtml.includes(f.content));
+    const unlinkedCss = flatFiles.filter(f => f.name.endsWith('.css') && !linkedPaths.has(f.path));
     if (unlinkedCss.length > 0) {
-      const stylesToInject = unlinkedCss.map(c => `/* ${c.name} */\n${c.content}`).join('\n\n');
+      const stylesToInject = unlinkedCss.map(c => `/* ${c.name} */\n${this.escapeStyleContent(c.content)}`).join('\n\n');
       if (combinedHtml.includes('</head>')) {
         combinedHtml = combinedHtml.replace('</head>', `<style>\n${stylesToInject}\n</style>\n</head>`);
       } else {
@@ -145,9 +168,9 @@ export class WebPreviewService {
       }
     }
 
-    const unlinkedJs = flatFiles.filter(f => (f.name.endsWith('.js') || f.name.endsWith('.ts')) && !combinedHtml.includes(f.content));
+    const unlinkedJs = flatFiles.filter(f => (f.name.endsWith('.js') || f.name.endsWith('.ts')) && !linkedPaths.has(f.path));
     if (unlinkedJs.length > 0) {
-      const scriptsToInject = unlinkedJs.map(s => `// ${s.name}\n${s.content}`).join('\n\n');
+      const scriptsToInject = unlinkedJs.map(s => `// ${s.name}\n${this.escapeScriptContent(s.content)}`).join('\n\n');
       if (combinedHtml.includes('</body>')) {
         combinedHtml = combinedHtml.replace('</body>', `<script>\n${scriptsToInject}\n</script>\n</body>`);
       } else {

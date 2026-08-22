@@ -135,13 +135,21 @@ export const Explorer: React.FC<ExplorerProps> = ({
         const fullDirPath = pathPrefix ? `${pathPrefix}/${entry.name}` : entry.name;
         await fileSystemService.createFolder(fullDirPath);
         const dirReader = entry.createReader();
-        return new Promise((resolve) => {
-          dirReader.readEntries(async (entries: any[]) => {
-            for (const child of entries) {
-              await readEntry(child, fullDirPath);
-            }
-            resolve();
-          });
+        // B7 fix: readEntries returns max 100 entries per call; loop until empty batch
+        await new Promise<void>((resolve) => {
+          const readBatch = () => {
+            dirReader.readEntries(async (entries: any[]) => {
+              if (entries.length === 0) {
+                resolve();
+              } else {
+                for (const child of entries) {
+                  await readEntry(child, fullDirPath);
+                }
+                readBatch(); // read the next batch
+              }
+            }, () => resolve()); // on error, resolve so we don't hang
+          };
+          readBatch();
         });
       }
     };
@@ -168,23 +176,29 @@ export const Explorer: React.FC<ExplorerProps> = ({
   // Handle standard file picker selection
   const handleFileInputChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const uploadedFiles = e.target.files;
-    if (!uploadedFiles) return;
+    if (!uploadedFiles || uploadedFiles.length === 0) return;
 
     for (let i = 0; i < uploadedFiles.length; i++) {
       const file = uploadedFiles[i];
-      const reader = new FileReader();
       const isMedia = file.type.startsWith('image/') || file.type.startsWith('audio/');
-      if (isMedia) {
-        reader.readAsDataURL(file);
-      } else {
-        reader.readAsText(file);
-      }
-      reader.onload = async () => {
+      try {
+        const content = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          if (isMedia) {
+            reader.readAsDataURL(file);
+          } else {
+            reader.readAsText(file);
+          }
+          reader.onload = () => resolve(String(reader.result || ''));
+          reader.onerror = reject;
+        });
         const path = (file as any).webkitRelativePath || file.name;
-        await fileSystemService.createFile(path, false, null, String(reader.result || ''));
-        onFilesImported?.();
-      };
+        await fileSystemService.createFile(path, false, null, content);
+      } catch (err) {}
     }
+
+    onFilesImported?.();
+    e.target.value = '';
   };
 
   // Recursive Tree Node Renderer

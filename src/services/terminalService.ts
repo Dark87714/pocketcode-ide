@@ -39,6 +39,7 @@ export class TerminalService {
     glog: 'git log --oneline'
   };
   private startTime: number = Date.now();
+  private previousDir: string = '/workspace';
   private sqliteTables: Record<string, any[]> = {
     users: [
       { id: 1, name: 'Alice Dev', role: 'admin', email: 'alice@example.com' },
@@ -340,9 +341,11 @@ Usage:
       case 'cd': {
         const target = args[0] || '~';
         if (target === '~' || target === '/workspace' || target === '/') {
+          this.previousDir = this.currentDir;
           this.currentDir = '/workspace';
           onOutput({ id: `line_${Date.now()}`, type: 'success', content: `Switched directory to ${this.currentDir}` });
         } else if (target === '..') {
+          this.previousDir = this.currentDir;
           if (this.currentDir !== '/workspace') {
             const parts = this.currentDir.split('/').filter(Boolean);
             parts.pop();
@@ -350,6 +353,10 @@ Usage:
           }
           onOutput({ id: `line_${Date.now()}`, type: 'output', content: this.currentDir });
         } else if (target === '-') {
+          // cd - swaps to previous directory (bash OLDPWD behaviour)
+          const swap = this.previousDir;
+          this.previousDir = this.currentDir;
+          this.currentDir = swap;
           onOutput({ id: `line_${Date.now()}`, type: 'output', content: this.currentDir });
         } else {
           const resolved = this.resolvePath(target);
@@ -358,6 +365,7 @@ Usage:
           const hasChildren = flatFiles.some(f => f.path.startsWith(resolved ? resolved + '/' : ''));
 
           if (folderExists || hasChildren || target === '.' || target === './') {
+            this.previousDir = this.currentDir;
             this.currentDir = resolved ? `/workspace/${resolved}` : '/workspace';
             onOutput({ id: `line_${Date.now()}`, type: 'success', content: `Switched directory to ${this.currentDir}` });
           } else {
@@ -613,14 +621,27 @@ Usage:
 
       case 'find': {
         const nameIdx = args.indexOf('-name');
-        const pattern = nameIdx !== -1 && args[nameIdx + 1] ? args[nameIdx + 1].replace(/['"]/g, '') : '';
+        const rawPattern = nameIdx !== -1 && args[nameIdx + 1] ? args[nameIdx + 1].replace(/['"]/g, '') : '';
         const allFiles = fileSystemService.getAllFlatFiles();
         let matches = allFiles;
 
-        if (pattern) {
-          const regexStr = '^' + pattern.replace(/\./g, '\\.').replace(/\*/g, '.*') + '$';
-          const rx = new RegExp(regexStr, 'i');
-          matches = allFiles.filter(f => rx.test(f.name) || rx.test(f.path));
+        if (rawPattern) {
+          // Sanitize: limit length and escape regex metacharacters, then convert glob * to [^/]* to prevent ReDoS
+          if (rawPattern.length > 100) {
+            onOutput({ id: `line_${Date.now()}`, type: 'error', content: 'find: pattern too long' });
+            break;
+          }
+          const safePattern = rawPattern
+            .replace(/[.+^${}()|[\]\\]/g, '\\$&')  // escape regex special chars
+            .replace(/\\\*/g, '[^/]*')               // restore escaped * as safe glob
+            .replace(/\*/g, '[^/]*');                 // convert remaining * glob
+          try {
+            const rx = new RegExp('^' + safePattern + '$', 'i');
+            matches = allFiles.filter(f => rx.test(f.name) || rx.test(f.path));
+          } catch (e: any) {
+            onOutput({ id: `line_${Date.now()}`, type: 'error', content: `find: invalid pattern: ${e.message}` });
+            break;
+          }
         }
 
         const lines = matches.map(f => `./${f.path}`).join('\n');
@@ -649,9 +670,16 @@ Usage:
           ? [fileSystemService.getFileByPath(this.resolvePath(target))].filter(Boolean)
           : fileSystemService.getAllFlatFiles().filter(f => !f.isFolder);
 
-        const results: string[] = [];
-        const regex = new RegExp(pattern, isCaseInsensitive ? 'i' : '');
+        // B6 fix: wrap RegExp construction in try/catch to handle invalid regex from user input
+        let regex: RegExp;
+        try {
+          regex = new RegExp(pattern, isCaseInsensitive ? 'i' : '');
+        } catch (e: any) {
+          onOutput({ id: `line_${Date.now()}`, type: 'error', content: `grep: invalid regex pattern: ${e.message}` });
+          break;
+        }
 
+        const results: string[] = [];
         filesToSearch.forEach((f: any) => {
           if (!f || !f.content) return;
           const lines = f.content.split('\n');
@@ -825,8 +853,10 @@ tmpfs            1048576      4096   1044480   1% /tmp`
       // 3. TEXT & STREAM UTILITIES
       // -------------------------------------------------------------
       case 'echo': {
-        const isNoNewline = args.includes('-n');
-        const text = args.filter(a => !a.startsWith('-')).join(' ');
+        // B3 fix: only treat '-n' as a flag; all other dash-prefixed args are literal text
+        const hasNoNewline = args[0] === '-n';
+        const textArgs = hasNoNewline ? args.slice(1) : args;
+        const text = textArgs.join(' ');
         onOutput({ id: `line_${Date.now()}`, type: 'output', content: text });
         break;
       }
@@ -879,9 +909,15 @@ tmpfs            1048576      4096   1044480   1% /tmp`
         let lines: string[] = [];
         if (filename) {
           const file = fileSystemService.getFileByPath(this.resolvePath(filename));
-          if (file) lines = (file.content || '').split('\n');
+          if (!file) {
+            onOutput({ id: `line_${Date.now()}`, type: 'error', content: `sort: ${filename}: No such file` });
+            break;
+          }
+          lines = (file.content || '').split('\n');
         } else {
-          lines = args.filter(a => !a.startsWith('-'));
+          // B12 fix: without a filename there is no piped stdin; show a helpful error
+          onOutput({ id: `line_${Date.now()}`, type: 'error', content: 'sort: no input provided. Usage: sort [-r] [-n] [-u] <file>' });
+          break;
         }
 
         if (isUnique) {
@@ -1020,17 +1056,24 @@ tmpfs            1048576      4096   1044480   1% /tmp`
       case 'calc':
       case 'bc':
       case 'expr': {
+        // B1 fix: replace unsafe Function() eval with a strict allowlist-based safe math evaluator
         try {
-          const exprStr = args.join(' ')
-            .replace(/Math\./g, '')
-            .replace(/sin/g, 'Math.sin')
-            .replace(/cos/g, 'Math.cos')
-            .replace(/tan/g, 'Math.tan')
-            .replace(/sqrt/g, 'Math.sqrt')
-            .replace(/pow/g, 'Math.pow')
-            .replace(/PI/gi, 'Math.PI')
-            .replace(/E/g, 'Math.E');
-          const result = Function(`'use strict'; return (${exprStr})`)();
+          const raw = args.join(' ').trim();
+          // Allow only: digits, whitespace, math operators, parentheses, dots, and known function names
+          const SAFE_MATH_RE = /^[\d\s+\-*/%.()^,e]+$|^(Math\.)?(sin|cos|tan|sqrt|pow|abs|log|floor|ceil|round|PI|E)(\(.*\))?$/;
+          // Tokenise and validate: allow only safe chars
+          if (!/^[\d\s+\-*/%().^,]+$/.test(raw.replace(/\b(sin|cos|tan|sqrt|pow|abs|log|floor|ceil|round|PI|E)\b/gi, '0'))) {
+            onOutput({ id: `line_${Date.now()}`, type: 'error', content: `calc: unsafe expression rejected. Only arithmetic and basic math functions are allowed.` });
+            break;
+          }
+          const safeExpr = raw
+            .replace(/\b(sin|cos|tan|sqrt|abs|log|floor|ceil|round)\b/gi, 'Math.$1')
+            .replace(/\bpow\b/gi, 'Math.pow')
+            .replace(/\bPI\b/gi, 'Math.PI')
+            .replace(/\bE\b/g, 'Math.E')
+            .replace(/\^/g, '**');
+          // Use a restricted Function context with only Math available
+          const result = new Function('Math', `'use strict'; return (${safeExpr});`)(Math);
           onOutput({ id: `line_${Date.now()}`, type: 'success', content: `= ${result}` });
         } catch (err: any) {
           onOutput({ id: `line_${Date.now()}`, type: 'error', content: `Math evaluation error: ${err.message}` });
@@ -1514,27 +1557,27 @@ Requires: micropip`
             worker.onmessage = (e) => {
               if (e.data.type === 'done') {
                 if (!hasOutput) {
-                  onOutput({ id: \`line_\${Date.now()}\`, type: 'success', content: 'Script executed with no output.' });
+                  onOutput({ id: `line_${Date.now()}`, type: 'success', content: 'Script executed with no output.' });
                 }
                 worker.terminate();
                 URL.revokeObjectURL(workerUrl);
                 resolve();
               } else if (e.data.type === 'error') {
                 hasOutput = true;
-                onOutput({ id: \`line_\${Date.now()}\`, type: 'error', content: e.data.content });
+                onOutput({ id: `line_${Date.now()}`, type: 'error', content: e.data.content });
                 worker.terminate();
                 URL.revokeObjectURL(workerUrl);
                 resolve();
               } else {
                 hasOutput = true;
-                onOutput({ id: \`line_\${Date.now()}\`, type: e.data.type, content: e.data.content });
+                onOutput({ id: `line_${Date.now()}`, type: e.data.type, content: e.data.content });
               }
             };
             
             worker.postMessage({ code, envVars: this.envVars });
           });
         } catch (e: any) {
-          onOutput({ id: \`line_\${Date.now()}\`, type: 'error', content: \`JavaScript Error: \${e.message}\` });
+          onOutput({ id: `line_${Date.now()}`, type: 'error', content: `JavaScript Error: ${e.message}` });
         }
         break;
       }

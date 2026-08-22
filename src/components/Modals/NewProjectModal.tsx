@@ -133,14 +133,21 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
 
   const handleDeleteProject = async (e: React.MouseEvent, projectId: string) => {
     e.stopPropagation();
+    const wasActive = projectId === fileSystemService.getCurrentProjectId();
     await fileSystemService.deleteProject(projectId);
     await refreshProjectsList();
+    if (wasActive) {
+      onProjectCreated(fileSystemService.getCurrentProjectName());
+    }
   };
 
   const handleDuplicateProject = async (e: React.MouseEvent, projectId: string) => {
     e.stopPropagation();
-    const res = await fileSystemService.duplicateProject(projectId);
-    onProjectCreated(fileSystemService.getCurrentProjectName());
+    // B8 fix: duplicateProject returns the new project; use that name rather than
+    // calling getCurrentProjectName() which may still report the old project.
+    const newProject = await fileSystemService.duplicateProject(projectId);
+    const newName = (newProject as any)?.name || fileSystemService.getCurrentProjectName();
+    onProjectCreated(newName);
     onClose();
   };
 

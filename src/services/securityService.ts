@@ -241,7 +241,7 @@ export class SecurityService {
     const findings: SecretFinding[] = [];
 
     const patterns: { name: string; regex: RegExp; severity: 'critical' | 'high' | 'medium' }[] = [
-      { name: 'OpenAI API Key', regex: /sk-[a-zA-Z0-9]{20,T3BlbkFJ[a-zA-Z0-9]{20,}/g, severity: 'critical' },
+      { name: 'OpenAI API Key', regex: /sk-[a-zA-Z0-9_\-]{20,}/g, severity: 'critical' },
       { name: 'Generic API Key (Bearer / Token)', regex: /(api[_-]?key|access[_-]?token|secret[_-]?key)\s*[:=]\s*['"][a-zA-Z0-9_\-]{24,}['"]/gi, severity: 'high' },
       { name: 'AWS Access Key ID', regex: /AKIA[0-9A-Z]{16}/g, severity: 'critical' },
       { name: 'GitHub Personal Access Token', regex: /ghp_[a-zA-Z0-9]{36}/g, severity: 'critical' },

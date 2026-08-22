@@ -54,7 +54,7 @@ export class UniversalRunnerService {
         return await new Promise<RunResult>((resolve) => {
           const workerCode = `
             self.onmessage = async (e) => {
-              const { code, wafEnabled, strictMode, blockedDomains } = e.data;
+              const { code, wafEnabled, strictMode, blockedDomains, allowedDomains } = e.data;
               
               const customConsole = {
                 log: (...args) => self.postMessage({ type: 'stdout', msg: args.map(a => typeof a === 'object' ? JSON.stringify(a, null, 2) : String(a)).join(' ') }),
@@ -78,8 +78,11 @@ export class UniversalRunnerService {
                     if (isPrivateIp && strictMode) {
                       throw new Error('WAF Blocked: Connection to private internal network is forbidden');
                     }
-                    if (blockedDomains.includes(hostname)) {
+                    if (blockedDomains && blockedDomains.includes(hostname)) {
                       throw new Error('WAF Blocked: Domain is on the security blocklist');
+                    }
+                    if (strictMode && allowedDomains && allowedDomains.length > 0 && !allowedDomains.includes(hostname) && !isPrivateIp) {
+                      throw new Error('WAF Strict Mode: Domain is not in the allowed destinations list (' + hostname + ')');
                     }
                   } catch (err) {
                     if (err.message.includes('WAF')) {
@@ -134,7 +137,8 @@ export class UniversalRunnerService {
             code: executableCode,
             wafEnabled: securityService.isWafActive(),
             strictMode: securityService.isStrict(),
-            blockedDomains: securityService.getBlockedDomains()
+            blockedDomains: securityService.getBlockedDomains(),
+            allowedDomains: securityService.getAllowedDomains()
           });
         });
       } catch (err: any) {

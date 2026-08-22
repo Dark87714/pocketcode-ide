@@ -79,12 +79,6 @@ export class FileSystemService {
         const backup = JSON.parse(backupJson);
         if (Array.isArray(backup) && backup.length > 0) {
           this.files = backup;
-          // Background reconcile with IndexedDB non-blockingly
-          get<FileItem[]>(projectStorageKey).then(stored => {
-            if (stored && Array.isArray(stored) && stored.length > 0) {
-              this.files = stored;
-            }
-          }).catch(() => {});
           this.syncProjectsIndex().catch(() => {});
           return this.files;
         }
@@ -365,9 +359,14 @@ export class FileSystemService {
       throw new Error(`Could not load files from ${owner}/${repo}. Check if repo is public.`);
     }
 
-    onProgress?.(`Downloading ${Math.min(treeData.tree.length, 30)} files from repository...`);
+    const blobNodes = treeData.tree.filter((node: any) => node.type === 'blob');
+    if (blobNodes.length > 30) {
+      onProgress?.(`⚠️ Large repository (${blobNodes.length} files). Fetching first 30 files...`);
+    } else {
+      onProgress?.(`Downloading ${blobNodes.length} files from repository...`);
+    }
     const newRoot: FileItem[] = [];
-    const filesToFetch = treeData.tree.filter((node: any) => node.type === 'blob').slice(0, 30);
+    const filesToFetch = blobNodes.slice(0, 30);
 
     for (let i = 0; i < filesToFetch.length; i++) {
       const node = filesToFetch[i];
@@ -529,9 +528,11 @@ export class FileSystemService {
     return rootItems;
   }
 
-  async loadTemplate(templateId: string): Promise<FileItem[]> {
-    const template = PROJECT_TEMPLATES.find(t => t.id === templateId) || PROJECT_TEMPLATES[0];
-    this.files = this.createFilesFromTemplate(template);
+  async loadTemplate(template: string | ProjectTemplate): Promise<FileItem[]> {
+    const templateObj = typeof template === 'string'
+      ? (PROJECT_TEMPLATES.find(t => t.id === template) || PROJECT_TEMPLATES[0])
+      : template;
+    this.files = this.createFilesFromTemplate(templateObj);
     await this.saveWorkspace(true);
     return this.files;
   }
@@ -648,7 +649,6 @@ export class FileSystemService {
       }
     }
 
-    this.saveWorkspace(false);
     return currentChildren[currentChildren.length - 1];
   }
 
@@ -725,11 +725,11 @@ export class FileSystemService {
     await this.saveWorkspace();
   }
 
-  getAllFlatFiles(): FileItem[] {
+  getAllFlatFiles(includeFolders: boolean = false): FileItem[] {
     const flat: FileItem[] = [];
     const traverse = (items: FileItem[]) => {
       for (const item of items) {
-        if (!item.isFolder) {
+        if (!item.isFolder || includeFolders) {
           flat.push(item);
         }
         if (item.children && item.children.length > 0) {

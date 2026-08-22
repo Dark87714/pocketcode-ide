@@ -102,8 +102,9 @@ export const TerminalPanel: React.FC = () => {
           writePrompt(term);
           break;
         default:
-          // Filter out arrow keys or control characters for our simple mock
-          if (e >= String.fromCharCode(0x20) && e <= String.fromCharCode(0x7E) || e.length >= 2) {
+          // B10 fix: filter out ANSI escape sequences (arrow keys, F-keys, etc.) before they
+          // corrupt currentLine. Multi-byte sequences that start with \x1b are control codes.
+          if (!e.startsWith('\x1b') && (e >= String.fromCharCode(0x20) && e <= String.fromCharCode(0x7E) || e.length >= 2)) {
             tInfo.currentLine += e;
             term.write(e);
           }

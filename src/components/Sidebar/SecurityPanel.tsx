@@ -14,11 +14,16 @@ interface SecurityPanelProps {
 
 export const SecurityPanel: React.FC<SecurityPanelProps> = ({ files, onOpenTerminal }) => {
   const [threats, setThreats] = useState<SecurityThreat[]>(securityService.getThreats());
-  const [auditResult, setAuditResult] = useState<SecurityAuditResult>(securityService.runFullSecurityAudit(files));
+  const [auditResult, setAuditResult] = useState<SecurityAuditResult>(() => securityService.runFullSecurityAudit(files));
   const [isStrict, setIsStrict] = useState(securityService.isStrict());
   const [isWafActive, setIsWafActive] = useState(securityService.isWafActive());
   const [isAuditing, setIsAuditing] = useState(false);
   const [activeTab, setActiveTab] = useState<'overview' | 'threats' | 'secrets' | 'firewall'>('overview');
+
+  React.useEffect(() => {
+    setAuditResult(securityService.runFullSecurityAudit(files));
+    setThreats(securityService.getThreats());
+  }, [files]);
 
   const handleRunAudit = () => {
     setIsAuditing(true);
