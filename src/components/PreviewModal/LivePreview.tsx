@@ -153,6 +153,15 @@ export const LivePreview: React.FC<LivePreviewProps> = ({
 
           <button
             onClick={handleOpenInNewTab}
+            className="px-2 py-1 rounded bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-medium flex items-center gap-1.5 transition-colors"
+            title="Open in new window / Install as standalone app on phone"
+          >
+            <Smartphone size={13} />
+            <span className="hidden sm:inline">Install to Phone</span>
+          </button>
+
+          <button
+            onClick={handleOpenInNewTab}
             className="p-1.5 rounded hover:bg-[#2d2d2d] text-[#858585] hover:text-white"
             title="Open in New Tab"
           >
