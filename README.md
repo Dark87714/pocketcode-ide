@@ -4,7 +4,7 @@
 
   <h3>A powerful, lightweight, mobile-first code editor and development environment built for Android & Web.</h3>
 
-  [![Release](https://img.shields.io/github/v/release/Dark87714/pocketcode-ide?style=for-the-badge&color=007acc)](https://github.com/Dark87714/pocketcode-ide/releases/latest)
+  [![Release](https://img.shields.io/badge/Release-v1.0.6-007acc?style=for-the-badge)](https://github.com/Dark87714/pocketcode-ide/releases/latest)
   [![Platform](https://img.shields.io/badge/Platform-Android%20%7C%20Web-brightgreen?style=for-the-badge)](https://github.com/Dark87714/pocketcode-ide)
   [![License](https://img.shields.io/badge/License-MIT-blue.svg?style=for-the-badge)](LICENSE)
 
