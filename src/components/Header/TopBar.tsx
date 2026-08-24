@@ -2,11 +2,12 @@ import React, { useState, useRef, useEffect } from 'react';
 import { 
   Play, Command, Terminal, FolderGit2,
   Menu, Download, Code, Layers, Columns2, Search,
-  Undo2, Redo2, Wand2, MoreHorizontal, Check, MessageSquare
+  Undo2, Redo2, Wand2, MoreHorizontal, Check, MessageSquare, Globe, Eye
 } from 'lucide-react';
 
 interface TopBarProps {
   onRunPreview: () => void;
+  onOpenPreview?: () => void;
   onOpenCommandPalette: () => void;
   onToggleSidebar: () => void;
   onToggleTerminal: () => void;
@@ -31,6 +32,7 @@ interface TopBarProps {
 
 export const TopBar: React.FC<TopBarProps> = ({
   onRunPreview,
+  onOpenPreview,
   onOpenCommandPalette,
   onToggleSidebar,
   onToggleTerminal,
@@ -213,14 +215,30 @@ export const TopBar: React.FC<TopBarProps> = ({
             </button>
           )}
 
-          {/* RUN / LIVE PREVIEW BUTTON */}
+          {/* RUN CODE BUTTON */}
           <button
             onClick={onRunPreview}
             className="px-2 sm:px-2.5 py-1 rounded bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 active:scale-95 text-white font-bold text-xs flex items-center gap-1 shadow-md transition-transform shrink-0"
-            title="Run / Live Preview (Execute Code)"
+            title="Run Code (Execute active file in terminal)"
           >
             <Play size={12} fill="currentColor" />
             <span className="hidden sm:inline text-[11px] sm:text-xs">Run</span>
+          </button>
+
+          {/* LIVE PREVIEW BUTTON (Always accessible) */}
+          <button
+            onClick={() => {
+              if (onOpenPreview) {
+                onOpenPreview();
+              } else {
+                window.dispatchEvent(new CustomEvent('pocketcode:toggle-preview'));
+              }
+            }}
+            className="px-2 sm:px-2.5 py-1 rounded bg-sky-600 hover:bg-sky-500 active:scale-95 text-white font-semibold text-xs flex items-center gap-1 shadow-md transition-transform shrink-0"
+            title="Live Web & App Preview (PWA / Sandbox)"
+          >
+            <Globe size={13} />
+            <span className="hidden sm:inline text-[11px] sm:text-xs">Preview</span>
           </button>
 
           {/* Terminal Toggle (Always visible) */}

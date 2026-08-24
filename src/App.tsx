@@ -802,6 +802,7 @@ export function App() {
       {/* Top Action Bar */}
       <TopBar
         onRunPreview={handleRunPreview}
+        onOpenPreview={() => setIsPreviewOpen(true)}
         onOpenCommandPalette={() => setIsCommandPaletteOpen(true)}
         onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
         onToggleTerminal={() => setIsTerminalOpen(!isTerminalOpen)}
