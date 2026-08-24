@@ -54,6 +54,43 @@ export class APKBuilderService {
           }
         }
 
+        // Patch AndroidManifest.xml binary package name so it installs as an independent app (no conflict with PocketCode IDE)
+        const manifestFile = zip.file('AndroidManifest.xml');
+        if (manifestFile) {
+          const manifestBytes = await manifestFile.async('uint8array');
+          const oldPkg = 'com.pocketcode.ide';
+          const newPkg = 'com.pocketcode.app';
+          
+          const oldBuf = new Uint8Array(oldPkg.length * 2);
+          for (let i = 0; i < oldPkg.length; i++) {
+            const code = oldPkg.charCodeAt(i);
+            oldBuf[i * 2] = code & 0xff;
+            oldBuf[i * 2 + 1] = (code >> 8) & 0xff;
+          }
+
+          const newBuf = new Uint8Array(newPkg.length * 2);
+          for (let i = 0; i < newPkg.length; i++) {
+            const code = newPkg.charCodeAt(i);
+            newBuf[i * 2] = code & 0xff;
+            newBuf[i * 2 + 1] = (code >> 8) & 0xff;
+          }
+
+          for (let i = 0; i <= manifestBytes.length - oldBuf.length; i++) {
+            let match = true;
+            for (let j = 0; j < oldBuf.length; j++) {
+              if (manifestBytes[i + j] !== oldBuf[j]) {
+                match = false;
+                break;
+              }
+            }
+            if (match) {
+              manifestBytes.set(newBuf, i);
+              break;
+            }
+          }
+          zip.file('AndroidManifest.xml', manifestBytes);
+        }
+
         onProgress(`[3/5] Injecting your project files into Android Native WebView host...`, 'output');
 
         // Check if there is an index.html, if not, create a fallback launcher
