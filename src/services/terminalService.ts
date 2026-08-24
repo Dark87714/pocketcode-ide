@@ -6,6 +6,7 @@ import { universalRunnerService } from './universalRunner';
 import { securityService } from './securityService';
 import { sqliteService } from './sqliteService';
 import { compilerService } from './compilerService';
+import { apkBuilderService } from './apkBuilderService';
 
 export interface TerminalLine {
   id: string;
@@ -1905,7 +1906,81 @@ Requires: micropip`
           onOutput({ id: `line_${Date.now()}`, type: 'error', content: 'npx: package name required' });
           return;
         }
+        if (tool === 'cap' && args[1] === 'build') {
+          await apkBuilderService.buildProjectAPK((msg, type) => {
+            const termType = type === 'error' ? 'error' : type === 'success' ? 'success' : type === 'system' ? 'system' : 'output';
+            onOutput({ id: `line_${Date.now()}_${Math.random()}`, type: termType, content: msg });
+          });
+          return;
+        }
         onOutput({ id: `line_${Date.now()}`, type: 'success', content: `Need to install the following packages:\n  ${tool}@latest\nOk to proceed? (y)\nExecuting ${tool}...` });
+        break;
+      }
+
+      // -------------------------------------------------------------
+      // ANDROID APK DIRECT BUILD PIPELINE
+      // -------------------------------------------------------------
+      case 'build:apk':
+      case 'build-apk':
+      case 'make:apk':
+      case 'apk': {
+        const sub = args[0]?.toLowerCase();
+        if (!sub || sub === 'build' || sub === 'assemble' || sub === 'generate') {
+          await apkBuilderService.buildProjectAPK((msg, type) => {
+            const termType = type === 'error' ? 'error' : type === 'success' ? 'success' : type === 'system' ? 'system' : 'output';
+            onOutput({ id: `line_${Date.now()}_${Math.random()}`, type: termType, content: msg });
+          });
+        } else if (sub === 'info' || sub === 'version') {
+          const pName = fileSystemService.getCurrentProjectName() || 'my-app';
+          onOutput({
+            id: `line_${Date.now()}`,
+            type: 'info',
+            content: `📱 Android APK Builder v1.0\nProject: ${pName}\nTarget Package: com.pocketcode.${pName.toLowerCase().replace(/[^a-z0-9_-]/g, '_')}\nSDK Target: Android 14+ (API 34/36)\nCompiler: AAPT2 + D8 DEX + Zipalign\nUsage: apk build | build:apk | ./gradlew assembleDebug`
+          });
+        } else {
+          onOutput({
+            id: `line_${Date.now()}`,
+            type: 'info',
+            content: `Usage: apk build (compiles and downloads .apk directly to your device) | apk info`
+          });
+        }
+        break;
+      }
+
+      case './gradlew':
+      case 'gradlew':
+      case 'gradle': {
+        const task = args.join(' ');
+        if (!task || task.includes('assemble') || task.includes('build') || task.includes('apk') || task.includes('package')) {
+          await apkBuilderService.buildProjectAPK((msg, type) => {
+            const termType = type === 'error' ? 'error' : type === 'success' ? 'success' : type === 'system' ? 'system' : 'output';
+            onOutput({ id: `line_${Date.now()}_${Math.random()}`, type: termType, content: msg });
+          });
+        } else {
+          onOutput({
+            id: `line_${Date.now()}`,
+            type: 'info',
+            content: `Gradle 8.13 Daemon. Try: ./gradlew assembleDebug or build:apk`
+          });
+        }
+        break;
+      }
+
+      case 'cap':
+      case 'capacitor': {
+        const sub = args[0];
+        if (sub === 'build' || sub === 'run') {
+          await apkBuilderService.buildProjectAPK((msg, type) => {
+            const termType = type === 'error' ? 'error' : type === 'success' ? 'success' : type === 'system' ? 'system' : 'output';
+            onOutput({ id: `line_${Date.now()}_${Math.random()}`, type: termType, content: msg });
+          });
+        } else {
+          onOutput({
+            id: `line_${Date.now()}`,
+            type: 'info',
+            content: `Capacitor CLI v8.5.0 (Android). Usage: cap build | npx cap build android`
+          });
+        }
         break;
       }
 
@@ -1990,32 +2065,6 @@ Go / C# / PHP / Ruby   Real Compiler    ✅ Multi-Language Execution Engine
 Run 'test:security' for sandbox audit or 'test:perf' for benchmarks.
 ==================================================================`;
         onOutput({ id: `line_${Date.now()}`, type: 'output', content: matrix });
-        break;
-      }
-
-      case 'sqlite':
-      case 'sqlite3':
-      case 'sql': {
-        const query = args.join(' ');
-        if (!query) {
-          onOutput({ id: `line_${Date.now()}`, type: 'info', content: 'SQLite3 In-Memory Engine. Try: sql SELECT * FROM users;' });
-          return;
-        }
-        const lowerQuery = query.toLowerCase();
-        if (lowerQuery.includes('select')) {
-          const tableMatch = lowerQuery.match(/from\s+([a-zA-Z0-9_]+)/);
-          const tableName = tableMatch ? tableMatch[1] : 'users';
-          const tableData = this.sqliteTables[tableName];
-          if (tableData) {
-            onOutput({ id: `line_${Date.now()}`, type: 'output', content: JSON.stringify(tableData, null, 2) });
-          } else {
-            onOutput({ id: `line_${Date.now()}`, type: 'error', content: `SQLite error: no such table: ${tableName}` });
-          }
-        } else if (lowerQuery.includes('.tables')) {
-          onOutput({ id: `line_${Date.now()}`, type: 'output', content: Object.keys(this.sqliteTables).join('    ') });
-        } else {
-          onOutput({ id: `line_${Date.now()}`, type: 'success', content: `Query executed successfully. Rows affected: 1` });
-        }
         break;
       }
 
