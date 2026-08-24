@@ -126,6 +126,7 @@ export function App() {
   const editorInstanceRef = useRef<any>(null);
   const monacoInstanceRef = useRef<any>(null);
   const autoSaveTimerRef = useRef<any>(null);
+  const sessionReadyRef = useRef<boolean>(false);
 
   // Resize listener for responsive layout
   useEffect(() => {
@@ -143,6 +144,8 @@ export function App() {
 
   // Initialize Workspace Files, Tabs, Theme & Settings on Reload
   useEffect(() => {
+    let isCancelled = false;
+
     const initApp = async () => {
       // 1. Restore saved settings if any
       try {
@@ -162,6 +165,7 @@ export function App() {
 
       // 2. Load workspace files
       const loadedFiles = await fileSystemService.loadWorkspace();
+      if (isCancelled) return;
       setFiles(loadedFiles);
       setCurrentProjectName(fileSystemService.getCurrentProjectName());
 
@@ -199,6 +203,7 @@ export function App() {
         if (restoredTabs.length > 0) {
           setTabs(restoredTabs);
           setActiveTabId(targetActiveTabId || restoredTabs[0].id);
+          sessionReadyRef.current = true;
           return;
         }
       }
@@ -208,12 +213,19 @@ export function App() {
       if (defaultFile && !defaultFile.isFolder) {
         openFile(defaultFile);
       }
+      sessionReadyRef.current = true;
     };
     initApp();
+
+    return () => {
+      isCancelled = true;
+    };
   }, []);
 
-  // Save active open tabs session whenever tabs or active tab change
+  // Save active open tabs session whenever tabs or active tab change (gated by sessionReadyRef)
   useEffect(() => {
+    if (!sessionReadyRef.current) return;
+
     if (tabs.length > 0) {
       const currentTab = tabs.find(t => t.id === activeTabId);
       // Deduplicate tabs before saving
@@ -379,20 +391,25 @@ export function App() {
 
   const closeTab = (tabId: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    const newTabs = tabs.filter(t => t.id !== tabId);
-    setTabs(newTabs);
+    setTabs(prev => {
+      const idx = prev.findIndex(t => t.id === tabId);
+      const newTabs = prev.filter(t => t.id !== tabId);
 
-    if (activeTabId === tabId) {
-      if (newTabs.length > 0) {
-        setActiveTabId(newTabs[newTabs.length - 1].id);
-      } else {
-        setActiveTabId(null);
+      if (activeTabId === tabId) {
+        if (newTabs.length > 0) {
+          const nextTab = newTabs[idx] || newTabs[idx - 1] || newTabs[0];
+          setActiveTabId(nextTab.id);
+        } else {
+          setActiveTabId(null);
+        }
       }
-    }
 
-    if (splitActiveTabId === tabId) {
-      setSplitActiveTabId(newTabs.length > 0 ? newTabs[0].id : null);
-    }
+      if (splitActiveTabId === tabId) {
+        setSplitActiveTabId(newTabs.length > 0 ? newTabs[0].id : null);
+      }
+
+      return newTabs;
+    });
   };
 
   const saveActiveFile = async () => {
@@ -444,15 +461,43 @@ export function App() {
   };
 
   const handleDeleteFile = async (fileId: string) => {
+    // 1. Recursively find all descendant file IDs if deleting a folder
+    const target = fileSystemService.getFileById(fileId);
+    const idsToDelete = new Set<string>([fileId]);
+    if (target?.children) {
+      const collectIds = (items: FileItem[]) => {
+        for (const item of items) {
+          idsToDelete.add(item.id);
+          if (item.children) collectIds(item.children);
+        }
+      };
+      collectIds(target.children);
+    }
+
+    // 2. Delete file/folder from filesystem
     await fileSystemService.deleteFile(fileId);
     setFiles([...fileSystemService.getFiles()]);
-    setTabs(prev => prev.filter(t => t.fileId !== fileId));
-    if (activeTab?.fileId === fileId) {
-      setActiveTabId(null);
-    }
-    if (splitActiveTab?.fileId === fileId) {
-      setSplitActiveTabId(null);
-    }
+
+    // 3. Close all descendant tabs and activate the nearest remaining tab
+    setTabs(prev => {
+      const deletedActiveIdx = prev.findIndex(t => t.id === activeTabId);
+      const remainingTabs = prev.filter(t => !idsToDelete.has(t.fileId));
+
+      if (activeTabId && prev.some(t => t.id === activeTabId && idsToDelete.has(t.fileId))) {
+        if (remainingTabs.length > 0) {
+          const nextTab = remainingTabs[deletedActiveIdx] || remainingTabs[deletedActiveIdx - 1] || remainingTabs[0];
+          setActiveTabId(nextTab.id);
+        } else {
+          setActiveTabId(null);
+        }
+      }
+
+      if (splitActiveTabId && prev.some(t => t.id === splitActiveTabId && idsToDelete.has(t.fileId))) {
+        setSplitActiveTabId(remainingTabs.length > 0 ? remainingTabs[0].id : null);
+      }
+
+      return remainingTabs;
+    });
   };
 
   const handleRenameFile = async (fileId: string, newName: string) => {
@@ -758,8 +803,19 @@ export function App() {
     const model = editor.getModel();
     if (!model) return { current: 0, total: 0 };
 
-    const matches = model.findMatches(query, false, isRegex, matchCase, null, true);
-    if (matches.length === 0) return { current: 0, total: 0 };
+    let matches: any[] = [];
+    try {
+      matches = model.findMatches(query, false, isRegex, matchCase, null, true);
+    } catch (e) {
+      // Incomplete or invalid regex fallback to literal match
+      try {
+        matches = model.findMatches(query, false, false, matchCase, null, true);
+      } catch {
+        return { current: 0, total: 0 };
+      }
+    }
+
+    if (!matches || matches.length === 0) return { current: 0, total: 0 };
 
     // Move to next match
     const selection = editor.getSelection();
@@ -777,7 +833,7 @@ export function App() {
     editor.setSelection(targetMatch.range);
     editor.revealRangeInCenter(targetMatch.range);
     const currentIndex = matches.findIndex((m: any) => m.range.equalsRange(targetMatch.range)) + 1;
-    return { current: currentIndex, total: matches.length };
+    return { current: currentIndex > 0 ? currentIndex : 1, total: matches.length };
   };
 
   const handleReplace = (replaceText: string) => {
@@ -791,10 +847,17 @@ export function App() {
 
   const handleReplaceAll = (findText: string, replaceText: string, matchCase: boolean, isRegex: boolean) => {
     if (!activeFile) return;
-    const flag = matchCase ? 'g' : 'gi';
-    const pattern = isRegex ? new RegExp(findText, flag) : new RegExp(findText.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), flag);
-    const newContent = activeFile.content.replace(pattern, replaceText);
-    handleEditorChange(newContent);
+    try {
+      const flag = matchCase ? 'g' : 'gi';
+      const pattern = isRegex ? new RegExp(findText, flag) : new RegExp(findText.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), flag);
+      const newContent = activeFile.content.replace(pattern, replaceText);
+      handleEditorChange(newContent);
+    } catch (e) {
+      const flag = matchCase ? 'g' : 'gi';
+      const pattern = new RegExp(findText.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), flag);
+      const newContent = activeFile.content.replace(pattern, replaceText);
+      handleEditorChange(newContent);
+    }
   };
 
   return (

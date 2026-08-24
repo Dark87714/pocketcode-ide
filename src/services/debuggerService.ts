@@ -304,15 +304,20 @@ class _PocketCodeDebugger(bdb.Bdb):
                 self.interrupted = True
                 raise KeyboardInterrupt("Debug session terminated")
 
-def _run_debugged_code(code_str, bps):
+def _run_debugged_code(bps):
+    code_str = str(js.window.__POCKETCODE_DEBUGGER_BRIDGE__.activeCode)
     dbg = _PocketCodeDebugger(bps)
     compiled = compile(code_str, '${filePath.replace(/\\/g, '/')}', 'exec')
     dbg.run(compiled)
 
-_run_debugged_code('''${code.replace(/\\/g, '\\\\').replace(/'''/g, "\\'\\'\\'")}''', ${bpListStr})
+_run_debugged_code(${bpListStr})
 `;
 
     try {
+      if (typeof window !== 'undefined' && (window as any).__POCKETCODE_DEBUGGER_BRIDGE__) {
+        (window as any).__POCKETCODE_DEBUGGER_BRIDGE__.activeCode = code;
+      }
+
       await pyodideService.runPython(
         pyDebuggerScript,
         msg => onOutput(msg, 'stdout'),
@@ -328,6 +333,9 @@ _run_debugged_code('''${code.replace(/\\/g, '\\\\').replace(/'''/g, "\\'\\'\\'")
         onOutput(`❌ [Debug Error] ${e.message || e}`, 'stderr');
       }
     } finally {
+      if (typeof window !== 'undefined' && (window as any).__POCKETCODE_DEBUGGER_BRIDGE__) {
+        (window as any).__POCKETCODE_DEBUGGER_BRIDGE__.activeCode = null;
+      }
       this.cleanupSession();
     }
   }

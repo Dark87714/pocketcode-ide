@@ -197,7 +197,16 @@ export class UniversalRunnerService {
 
           const blob = new Blob([workerCode], { type: 'application/javascript' });
           const workerUrl = URL.createObjectURL(blob);
-          const worker = new Worker(workerUrl);
+          let worker: Worker;
+          try {
+            worker = new Worker(workerUrl);
+          } catch (err: any) {
+            URL.revokeObjectURL(workerUrl);
+            const msg = err?.message || 'Failed to initialize worker sandbox';
+            onOutput(`❌ Sandbox Initialization Error: ${msg}`, 'stderr');
+            resolve({ language: 'JavaScript', type: 'terminal', error: msg });
+            return;
+          }
 
           let isCleanedUp = false;
           let watchdogTimer: any = null;

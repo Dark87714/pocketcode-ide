@@ -1,5 +1,6 @@
 import forge from 'node-forge';
 import JSZip from 'jszip';
+import { get as idbGet, set as idbSet } from 'idb-keyval';
 
 // APK Signature Scheme v2 Constants
 const APK_SIG_V2_ID = 0x7109871a;
@@ -221,31 +222,51 @@ export class APKSignerService {
 
   /**
    * Initializes or generates standard Android Debug credentials.
-   * Persisted in localStorage so all APK updates share the EXACT same signature,
-   * completely eliminating INSTALL_FAILED_UPDATE_INCOMPATIBLE signature mismatch errors.
+   * Persisted in IndexedDB so all APK updates share the EXACT same signature,
+   * completely eliminating INSTALL_FAILED_UPDATE_INCOMPATIBLE signature mismatch errors
+   * without exposing private keys in plaintext localStorage.
    */
   async ensureKeys(): Promise<{ key: forge.pki.rsa.PrivateKey; cert: forge.pki.Certificate }> {
     if (this.keyPair && this.cert) {
       return { key: this.keyPair.privateKey, cert: this.cert };
     }
 
+    // 1. Check IndexedDB first
     try {
-      const savedPem = localStorage.getItem(KEYSTORE_STORAGE_KEY);
-      if (savedPem) {
-        const parsed = JSON.parse(savedPem);
+      const saved = await idbGet<{ privateKeyPem: string; certPem: string }>(KEYSTORE_STORAGE_KEY);
+      if (saved && saved.privateKeyPem && saved.certPem) {
+        const privateKey = forge.pki.privateKeyFromPem(saved.privateKeyPem);
+        const cert = forge.pki.certificateFromPem(saved.certPem);
+        const publicKey = forge.pki.setRsaPublicKey(privateKey.n, privateKey.e);
+        this.keyPair = { privateKey, publicKey };
+        this.cert = cert;
+        return { key: privateKey, cert };
+      }
+    } catch (e) {
+      console.warn('Failed to load saved keystore from IndexedDB:', e);
+    }
+
+    // 2. Migration: check legacy localStorage, migrate to IndexedDB, and scrub from localStorage
+    try {
+      const legacySavedPem = localStorage.getItem(KEYSTORE_STORAGE_KEY);
+      if (legacySavedPem) {
+        const parsed = JSON.parse(legacySavedPem);
         if (parsed.privateKeyPem && parsed.certPem) {
           const privateKey = forge.pki.privateKeyFromPem(parsed.privateKeyPem);
           const cert = forge.pki.certificateFromPem(parsed.certPem);
           const publicKey = forge.pki.setRsaPublicKey(privateKey.n, privateKey.e);
           this.keyPair = { privateKey, publicKey };
           this.cert = cert;
+          await idbSet(KEYSTORE_STORAGE_KEY, { privateKeyPem: parsed.privateKeyPem, certPem: parsed.certPem });
+          localStorage.removeItem(KEYSTORE_STORAGE_KEY);
           return { key: privateKey, cert };
         }
       }
     } catch (e) {
-      console.warn('Failed to load saved keystore, generating persistent one:', e);
+      console.warn('Failed to migrate legacy keystore from localStorage:', e);
     }
 
+    // 3. Generate new keypair
     this.keyPair = forge.pki.rsa.generateKeyPair({ bits: 2048, e: 0x10001 });
     
     const cert = forge.pki.createCertificate();
@@ -268,8 +289,11 @@ export class APKSignerService {
     try {
       const privateKeyPem = forge.pki.privateKeyToPem(this.keyPair.privateKey);
       const certPem = forge.pki.certificateToPem(cert);
-      localStorage.setItem(KEYSTORE_STORAGE_KEY, JSON.stringify({ privateKeyPem, certPem }));
-    } catch (e) {}
+      await idbSet(KEYSTORE_STORAGE_KEY, { privateKeyPem, certPem });
+      localStorage.removeItem(KEYSTORE_STORAGE_KEY);
+    } catch (e) {
+      console.warn('Failed to persist keystore in IndexedDB:', e);
+    }
 
     return { key: this.keyPair.privateKey, cert: this.cert };
   }

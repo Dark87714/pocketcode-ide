@@ -65,7 +65,13 @@ export const TouchFindReplace: React.FC<TouchFindReplaceProps> = ({
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === 'Enter') handleNext();
+              if (e.key === 'Enter') {
+                if (e.shiftKey) {
+                  handlePrev();
+                } else {
+                  handleNext();
+                }
+              }
               if (e.key === 'Escape') onClose();
             }}
             placeholder="Find in file..."
@@ -129,12 +135,24 @@ export const TouchFindReplace: React.FC<TouchFindReplaceProps> = ({
             type="text"
             value={replaceText}
             onChange={(e) => setReplaceText(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                if (query && matchInfo.total > 0) {
+                  onReplace(replaceText);
+                  handleNext();
+                }
+              }
+              if (e.key === 'Escape') onClose();
+            }}
             placeholder="Replace with..."
             className="flex-1 bg-[#1e1e1e] border border-[#3c3c3c] rounded px-2.5 py-1 text-xs text-white placeholder-[#666666] focus:border-[#007acc] focus:outline-none"
           />
 
           <button
-            onClick={() => onReplace(replaceText)}
+            onClick={() => {
+              onReplace(replaceText);
+              handleNext();
+            }}
             disabled={!query || matchInfo.total === 0}
             className="px-2 py-1 rounded bg-[#333333] hover:bg-[#007acc] text-white text-[11px] disabled:opacity-30 font-medium transition-colors"
           >

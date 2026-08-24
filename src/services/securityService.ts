@@ -521,7 +521,7 @@ export class SecurityService {
       id: 'SEC-TEST-010',
       name: 'Private Subnet & RFC1918 Defense',
       category: 'waf',
-      passed: privateIpCheck || this.isStrictMode || true,
+      passed: privateIpCheck && this.isStrictMode,
       details: 'Ensures outbound network requests to internal LAN subnets are blocked.',
       timestamp: Date.now()
     });
@@ -539,13 +539,13 @@ export class SecurityService {
 
     // Test 12: Remote Terminal WebSocket URL Validation (BUG-006)
     const insecureWsTest = 'ws://public-untrusted-node.com:8080';
-    const isValidWsProtocol = insecureWsTest.startsWith('ws://') || insecureWsTest.startsWith('wss://');
+    const isRestrictedWs = !this.allowedDomains.has('public-untrusted-node.com') && (insecureWsTest.startsWith('ws://') || insecureWsTest.startsWith('wss://'));
     results.push({
       id: 'SEC-TEST-012',
       name: 'Remote WebSocket Terminal Protocol Guard',
       category: 'waf',
-      passed: isValidWsProtocol,
-      details: 'Validates strict protocol schemes and prevents unauthenticated remote access.',
+      passed: isRestrictedWs,
+      details: 'Validates strict protocol schemes and flags unauthenticated remote access.',
       timestamp: Date.now()
     });
 
@@ -572,11 +572,12 @@ export class SecurityService {
     });
 
     // Test 15: Execution Environment Global Shadow Verification (BUG-004)
+    const shadowTest = this.inspectPayload('const f = new Function("return window");', 'sandbox.js');
     results.push({
       id: 'SEC-TEST-015',
       name: 'Sandbox Scope Shadowing & Global Encapsulation',
       category: 'sandbox',
-      passed: true,
+      passed: !shadowTest.safe,
       details: 'Verifies encapsulation parameters shadow Function, eval, globalThis, window, and parent.',
       timestamp: Date.now()
     });

@@ -1,7 +1,21 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { marked } from 'marked';
+import DOMPurify from 'dompurify';
 import hljs from 'highlight.js';
 import 'highlight.js/styles/github-dark.css';
+
+function escapeHtml(str: string): string {
+  return str.replace(/[&<>"']/g, (m) => {
+    switch (m) {
+      case '&': return '&amp;';
+      case '<': return '&lt;';
+      case '>': return '&gt;';
+      case '"': return '&quot;';
+      case "'": return '&#39;';
+      default: return m;
+    }
+  });
+}
 
 // Configure marked with syntax highlighting
 marked.setOptions({
@@ -9,13 +23,13 @@ marked.setOptions({
   breaks: true,
 });
 
-// Override code block renderer with highlight.js
+// Override code block renderer with highlight.js and safe escaping
 const renderer = new marked.Renderer();
 renderer.code = function ({ text, lang }: { text: string; lang?: string }) {
   const language = lang && hljs.getLanguage(lang) ? lang : 'plaintext';
   const highlighted = language !== 'plaintext' 
     ? hljs.highlight(text, { language }).value 
-    : text;
+    : escapeHtml(text);
   return `<pre class="hljs-code-block"><code class="hljs language-${language}">${highlighted}</code></pre>`;
 };
 marked.use({ renderer });
@@ -32,9 +46,10 @@ export const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({ content, fileN
   useEffect(() => {
     try {
       const rendered = marked.parse(content || '') as string;
-      setHtml(rendered);
+      const sanitized = DOMPurify.sanitize(rendered);
+      setHtml(sanitized);
     } catch (e) {
-      setHtml(`<p style="color:#f85149">Error rendering markdown: ${e}</p>`);
+      setHtml(`<p style="color:#f85149">Error rendering markdown: ${escapeHtml(String(e))}</p>`);
     }
   }, [content]);
 
@@ -54,7 +69,7 @@ export const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({ content, fileN
       {/* Rendered Markdown */}
       <div
         ref={containerRef}
-        className="flex-1 overflow-y-auto px-6 py-5"
+        className="markdown-preview-body flex-1 overflow-y-auto px-6 py-5"
         dangerouslySetInnerHTML={{ __html: html }}
         style={{
           fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif',

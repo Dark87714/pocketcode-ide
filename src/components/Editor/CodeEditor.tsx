@@ -36,10 +36,23 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({
 }) => {
   const editorRef = useRef<any>(null);
   const monacoRef = useRef<any>(null);
+  const pathRef = useRef<string>(path);
   const decorationsRef = useRef<string[]>([]);
   const blameDecorationsRef = useRef<string[]>([]);
   const registeredLanguagesRef = useRef<Set<string>>(new Set());
   const [activeBlame, setActiveBlame] = useState<GitBlameLine | null>(null);
+
+  useEffect(() => {
+    pathRef.current = path;
+  }, [path]);
+
+  useEffect(() => {
+    return () => {
+      editorRef.current = null;
+      monacoRef.current = null;
+      onMountInstance?.(null, null);
+    };
+  }, []);
 
   const updateDecorations = () => {
     if (!editorRef.current || !monacoRef.current) return;
@@ -49,7 +62,7 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({
     const newDecorations: any[] = [];
 
     // 1. Breakpoints
-    const bps = debuggerService.getBreakpoints(path);
+    const bps = debuggerService.getBreakpoints(pathRef.current);
     bps.forEach(bp => {
       newDecorations.push({
         range: new mon.Range(bp.lineNumber, 1, bp.lineNumber, 1),
@@ -63,7 +76,7 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({
 
     // 2. Active Paused Line
     const currentFrame = debuggerService.getCurrentFrame();
-    if (currentFrame && currentFrame.file === path) {
+    if (currentFrame && currentFrame.file === pathRef.current) {
       newDecorations.push({
         range: new mon.Range(currentFrame.line, 1, currentFrame.line, 1),
         options: {
@@ -80,7 +93,7 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({
   const updateBlameAnnotation = async (line: number) => {
     if (!editorRef.current || !monacoRef.current) return;
     try {
-      const blames = await realGitService.getBlame(path);
+      const blames = await realGitService.getBlame(pathRef.current);
       const blame = blames.find(b => b.lineNumber === line);
       setActiveBlame(blame || null);
 
@@ -106,7 +119,7 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({
   const updatePythonDiagnostics = () => {
     if (!editorRef.current || !monacoRef.current) return;
     const lang = language.toLowerCase();
-    if (lang === 'python' || path.endsWith('.py')) {
+    if (lang === 'python' || pathRef.current.endsWith('.py')) {
       const mon = monacoRef.current;
       const model = editorRef.current.getModel();
       if (!model) return;
@@ -128,6 +141,7 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({
   const handleEditorDidMount: OnMount = (editor, mon) => {
     editorRef.current = editor;
     monacoRef.current = mon;
+    onMountInstance?.(editor, mon);
 
     // Enhance TypeScript / JS language intelligence & global types
     setupMonacoIntellisense(mon);
@@ -143,15 +157,12 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({
     const activeThemeObj = THEMES.find((t) => t.id === settings.theme) || THEMES[0];
     mon.editor.setTheme(activeThemeObj.monacoTheme);
 
-    // Click handler for Breakpoint Gutter
+    // Click handler for Breakpoint Gutter (Glyph Margin only)
     editor.onMouseDown((e: any) => {
-      if (
-        e.target.type === mon.editor.MouseTargetType.GUTTER_GLYPH_MARGIN ||
-        e.target.type === mon.editor.MouseTargetType.GUTTER_LINE_NUMBERS
-      ) {
+      if (e.target.type === mon.editor.MouseTargetType.GUTTER_GLYPH_MARGIN) {
         const line = e.target.position?.lineNumber;
         if (line) {
-          debuggerService.toggleBreakpoint(path, line);
+          debuggerService.toggleBreakpoint(pathRef.current, line);
         }
       }
     });

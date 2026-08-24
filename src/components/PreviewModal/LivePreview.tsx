@@ -188,7 +188,7 @@ export const LivePreview: React.FC<LivePreviewProps> = ({
             ref={iframeRef}
             srcDoc={previewHtml}
             title="PocketCode Sandbox Preview"
-            sandbox="allow-scripts allow-modals allow-same-origin allow-forms allow-popups"
+            sandbox="allow-scripts allow-modals allow-forms allow-popups"
             className="w-full h-full border-0 bg-white"
           />
         </div>

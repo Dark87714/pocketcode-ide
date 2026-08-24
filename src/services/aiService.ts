@@ -1,4 +1,4 @@
-import { get as idbGet } from 'idb-keyval';
+import { get as idbGet, set as idbSet, del as idbDel } from 'idb-keyval';
 
 const GEMINI_KEY_STORE = 'pocketcode_gemini_api_key';
 
@@ -16,26 +16,53 @@ export interface AICodeAction {
 
 class AIService {
   private apiKey: string = '';
+  private isLoaded: boolean = false;
   private baseUrl = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
 
   async loadApiKey(): Promise<string> {
-    if (this.apiKey) return this.apiKey;
+    if (this.isLoaded && this.apiKey) return this.apiKey;
+
+    // 1. Try to load from IndexedDB
     try {
-      const stored = localStorage.getItem(GEMINI_KEY_STORE) || '';
-      this.apiKey = stored;
-      return stored;
-    } catch {
-      return '';
-    }
+      const stored = await idbGet<string>(GEMINI_KEY_STORE);
+      if (stored) {
+        this.apiKey = stored;
+        this.isLoaded = true;
+        return stored;
+      }
+    } catch {}
+
+    // 2. Migration: check legacy localStorage, migrate to IndexedDB, remove from localStorage
+    try {
+      const legacyKey = localStorage.getItem(GEMINI_KEY_STORE);
+      if (legacyKey) {
+        this.apiKey = legacyKey;
+        this.isLoaded = true;
+        await idbSet(GEMINI_KEY_STORE, legacyKey);
+        localStorage.removeItem(GEMINI_KEY_STORE);
+        return legacyKey;
+      }
+    } catch {}
+
+    this.isLoaded = true;
+    return '';
   }
 
-  saveApiKey(key: string) {
-    this.apiKey = key;
-    localStorage.setItem(GEMINI_KEY_STORE, key);
+  async saveApiKey(key: string): Promise<void> {
+    this.apiKey = key.trim();
+    this.isLoaded = true;
+    try {
+      if (this.apiKey) {
+        await idbSet(GEMINI_KEY_STORE, this.apiKey);
+      } else {
+        await idbDel(GEMINI_KEY_STORE);
+      }
+      localStorage.removeItem(GEMINI_KEY_STORE);
+    } catch {}
   }
 
   hasApiKey(): boolean {
-    return !!(this.apiKey || localStorage.getItem(GEMINI_KEY_STORE));
+    return !!this.apiKey;
   }
 
   private async callGemini(prompt: string, systemContext?: string): Promise<string> {
@@ -53,9 +80,12 @@ class AIService {
       generationConfig: { temperature: 0.7, maxOutputTokens: 2048 }
     };
 
-    const res = await fetch(`${this.baseUrl}?key=${key}`, {
+    const res = await fetch(this.baseUrl, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 
+        'Content-Type': 'application/json',
+        'x-goog-api-key': key
+      },
       body: JSON.stringify(body)
     });
 

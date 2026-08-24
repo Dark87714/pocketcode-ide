@@ -1,4 +1,6 @@
 // In-browser Pyodide Python WebAssembly runner with real Package & PyTorch ML Support
+import { fileSystemService } from './fileSystem';
+
 declare global {
   interface Window {
     loadPyodide?: (config: { indexURL: string }) => Promise<any>;
@@ -549,12 +551,10 @@ if (typeof window !== 'undefined') {
     // Open in new tab — the service will auto-resolve and offer the MP4 download
     const w = window.open(proxyUrl, '_blank');
     if (!w) {
-      // Popup blocked — fall back to inline redirect
-      window.location.href = proxyUrl;
+      console.warn(`[yt-dlp] Popup was blocked by browser. Please open download page manually: ${proxyUrl}`);
     }
 
     // Show a helpful message in terminal
-    const term = document.querySelector('.terminal-output, .xterm-viewport');
     console.log(`[yt-dlp] Opening download page for: https://www.youtube.com/watch?v=${videoId}`);
   };
 }
@@ -953,7 +953,54 @@ if '${norm}' not in sys.modules:
         }
       } catch (e) {}
 
+      // Sync IDE workspace files into Pyodide Emscripten FS
+      try {
+        if (this.pyodideInstance?.FS) {
+          const FS = this.pyodideInstance.FS;
+          const flatFiles = fileSystemService.getAllFlatFiles();
+          for (const f of flatFiles) {
+            if (!f.isFolder) {
+              const parts = f.path.split('/');
+              let cur = '';
+              for (let i = 0; i < parts.length - 1; i++) {
+                cur += (cur ? '/' : '') + parts[i];
+                try { FS.mkdir(cur); } catch(e) {}
+              }
+              try {
+                FS.writeFile(f.path, f.content || '');
+              } catch(e) {}
+            }
+          }
+        }
+      } catch (e) {}
+
       const result = await this.pyodideInstance.runPythonAsync(sanitizedCode);
+
+      // Sync any updated/written files back to IDE workspace
+      try {
+        if (this.pyodideInstance?.FS) {
+          const FS = this.pyodideInstance.FS;
+          const flatFiles = fileSystemService.getAllFlatFiles();
+          let changed = false;
+          for (const f of flatFiles) {
+            if (!f.isFolder) {
+              try {
+                if (FS.analyzePath(f.path).exists) {
+                  const updatedContent = FS.readFile(f.path, { encoding: 'utf8' });
+                  if (updatedContent !== f.content) {
+                    fileSystemService.updateFileContent(f.id, updatedContent);
+                    changed = true;
+                  }
+                }
+              } catch(e) {}
+            }
+          }
+          if (changed) {
+            fileSystemService.saveWorkspace();
+          }
+        }
+      } catch (e) {}
+
       flushStdout();
       return { success: true, result };
     } catch (err: any) {

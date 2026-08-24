@@ -34,6 +34,19 @@ export class WebPreviewService {
     return content.replace(/<\/style/gi, '<\\/style');
   }
 
+  private escapeHtml(str: string): string {
+    return str.replace(/[&<>"']/g, (m) => {
+      switch (m) {
+        case '&': return '&amp;';
+        case '<': return '&lt;';
+        case '>': return '&gt;';
+        case '"': return '&quot;';
+        case "'": return '&#39;';
+        default: return m;
+      }
+    });
+  }
+
   buildPreviewHtml(files: FileItem[], isAppBundle: boolean = false): string {
     const flatFiles = this.getFlatFiles(files);
     const linkedPaths = new Set<string>();
@@ -67,7 +80,7 @@ export class WebPreviewService {
         ? `<div style="margin-top: 20px; text-align: left; background: #252526; border: 1px solid #3c3c3c; border-radius: 8px; padding: 14px;">
             <p style="margin: 0 0 8px 0; font-weight: 600; font-size: 13px; color: #9cdcfe;">📁 Files in this Workspace (${flatFiles.length}):</p>
             <ul style="margin: 0; padding-left: 20px; font-size: 12px; color: #cccccc; font-family: monospace;">
-              ${flatFiles.map(f => `<li>${f.name} <span style="color: #6a9955;">(${f.language || 'text'})</span></li>`).join('')}
+              ${flatFiles.map(f => `<li>${this.escapeHtml(f.name)} <span style="color: #6a9955;">(${this.escapeHtml(f.language || 'text')})</span></li>`).join('')}
             </ul>
           </div>`
         : '';

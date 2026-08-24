@@ -55,7 +55,7 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
-    setHasKey(aiService.hasApiKey());
+    aiService.loadApiKey().then(key => setHasKey(!!key));
   }, []);
 
   useEffect(() => {

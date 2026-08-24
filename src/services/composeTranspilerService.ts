@@ -1,6 +1,19 @@
 import { FileItem } from '../types';
 import { ProjectAnalysis } from './projectTypeDetector';
 
+function escapeHtml(str: string): string {
+  return str.replace(/[&<>"']/g, (m) => {
+    switch (m) {
+      case '&': return '&amp;';
+      case '<': return '&lt;';
+      case '>': return '&gt;';
+      case '"': return '&quot;';
+      case "'": return '&#39;';
+      default: return m;
+    }
+  });
+}
+
 export interface ParsedComposable {
   name: string;
   code: string;
@@ -18,6 +31,7 @@ export class ComposeTranspilerService {
   ): string {
     const flatFiles = this.flatten(files);
     const appTitle = analysis.applicationName || 'My Application';
+    const appTitleEscaped = escapeHtml(appTitle);
 
     // 1. Extract string resources
     const stringMap = this.extractStrings(flatFiles);
@@ -57,7 +71,7 @@ export class ComposeTranspilerService {
 
     const defaultScreen = parsedScreens[0] || {
       name: 'HomeScreen',
-      html: `<div class="compose-card"><div class="compose-title">📱 ${appTitle}</div><div class="compose-desc">Welcome to your Native Android application.</div></div>`
+      html: `<div class="compose-card"><div class="compose-title">📱 ${appTitleEscaped}</div><div class="compose-desc">Welcome to your Native Android application.</div></div>`
     };
 
     return `<!DOCTYPE html>
@@ -65,7 +79,7 @@ export class ComposeTranspilerService {
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
-  <title>${appTitle}</title>
+  <title>${appTitleEscaped}</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
@@ -250,9 +264,9 @@ export class ComposeTranspilerService {
   <div class="app-root">
     <div class="screen-navigator" id="screenNav">
       ${parsedScreens.map((s, idx) => `
-        <div class="screen-tab-btn ${idx === 0 ? 'active' : ''}" onclick="switchScreen('${s.name}')">
-          📱 ${s.name}
-        </div>
+        <button type="button" class="screen-tab-btn ${idx === 0 ? 'active' : ''}" data-screen-name="${encodeURIComponent(s.name)}">
+          📱 ${escapeHtml(s.name)}
+        </button>
       `).join('')}
     </div>
 
@@ -262,16 +276,18 @@ export class ComposeTranspilerService {
   </div>
 
   <script>
-    const screensStore = ${JSON.stringify(parsedScreens)};
-    function switchScreen(name) {
-      document.querySelectorAll('.screen-tab-btn').forEach(btn => {
-        btn.classList.toggle('active', btn.textContent.includes(name));
+    const screensStore = ${JSON.stringify(parsedScreens).replace(/<\/script/gi, '<\\/script')};
+    document.querySelectorAll('.screen-tab-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const rawName = decodeURIComponent(btn.getAttribute('data-screen-name') || '');
+        document.querySelectorAll('.screen-tab-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        const target = screensStore.find(s => s.name === rawName);
+        if (target) {
+          document.getElementById('screenViewport').innerHTML = target.html;
+        }
       });
-      const target = screensStore.find(s => s.name === name);
-      if (target) {
-        document.getElementById('screenViewport').innerHTML = target.html;
-      }
-    }
+    });
   </script>
 </body>
 </html>`;

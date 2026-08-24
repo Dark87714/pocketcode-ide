@@ -21,7 +21,7 @@ export const SourceControl: React.FC<SourceControlProps> = ({ onOpenDiff }) => {
   const [showBranchModal, setShowBranchModal] = useState(false);
   const [newBranchName, setNewBranchName] = useState('');
   const [showTokenModal, setShowTokenModal] = useState(false);
-  const [githubToken, setGithubToken] = useState(realGitService.getGitHubToken());
+  const [githubToken, setGithubToken] = useState('');
   const [remoteUrl, setRemoteUrl] = useState('');
   const [showCloneModal, setShowCloneModal] = useState(false);
   const [syncStatus, setSyncStatus] = useState<string | null>(null);
@@ -32,9 +32,11 @@ export const SourceControl: React.FC<SourceControlProps> = ({ onOpenDiff }) => {
       const s = await realGitService.getStatus();
       const c = await realGitService.getCommits(15);
       const b = await realGitService.getBranches();
+      const token = await realGitService.getGitHubToken();
       setStatus(s);
       setCommits(c);
       setBranches(b);
+      setGithubToken(token);
     } catch {}
   };
 
@@ -382,7 +384,7 @@ export const SourceControl: React.FC<SourceControlProps> = ({ onOpenDiff }) => {
               className="w-full bg-[#252526] border border-[#3c3c3c] rounded p-2 text-xs text-white focus:outline-none font-mono"
             />
             <button
-              onClick={() => { realGitService.setGitHubToken(githubToken); setShowTokenModal(false); }}
+              onClick={async () => { await realGitService.setGitHubToken(githubToken); setShowTokenModal(false); }}
               className="w-full py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded font-bold text-xs"
             >
               Save Credentials

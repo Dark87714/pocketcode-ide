@@ -73,7 +73,7 @@ export class FileSystemService {
     this.currentProjectId = activeId;
 
     // Instantly restore saved project name from localStorage cache
-    const savedName = localStorage.getItem(`${ACTIVE_PROJECT_NAME_KEY}_${activeId}`) || localStorage.getItem(ACTIVE_PROJECT_NAME_KEY);
+    const savedName = localStorage.getItem(`${ACTIVE_PROJECT_NAME_KEY}_${activeId}`) || (activeId === 'default_project' ? localStorage.getItem(ACTIVE_PROJECT_NAME_KEY) : null);
     if (savedName && savedName.trim()) {
       this.currentProjectName = savedName.trim();
     }
@@ -82,7 +82,7 @@ export class FileSystemService {
 
     // 2. Read from localStorage synchronous cache first for instant 0ms startup
     try {
-      const backupJson = localStorage.getItem(`${BACKUP_STORAGE_KEY}_${activeId}`) || localStorage.getItem(BACKUP_STORAGE_KEY);
+      const backupJson = localStorage.getItem(`${BACKUP_STORAGE_KEY}_${activeId}`) || (activeId === 'default_project' ? localStorage.getItem(BACKUP_STORAGE_KEY) : null);
       if (backupJson) {
         const backup = JSON.parse(backupJson);
         if (Array.isArray(backup) && backup.length > 0) {
@@ -108,25 +108,27 @@ export class FileSystemService {
       console.warn('Failed to load from IndexedDB:', e);
     }
 
-    // 4. Try legacy storage keys (v2, v1) for cross-version data migration (BUG-010)
-    try {
-      const legacyKeys = [
-        STORAGE_KEY,
-        'pocketcode_workspace_files_v2',
-        'pocketcode_workspace_files',
-        'vscode_mobile_files_v1'
-      ];
-      for (const key of legacyKeys) {
-        const legacyStored = await get<any[]>(key);
-        if (legacyStored && Array.isArray(legacyStored) && legacyStored.length > 0) {
-          const { files: migrated } = this.migrateWorkspaceData(legacyStored);
-          this.files = migrated;
-          await this.saveWorkspace();
-          await this.syncProjectsIndex();
-          return this.files;
+    // 4. Try legacy storage keys (v2, v1) for cross-version data migration ONLY for default_project
+    if (activeId === 'default_project') {
+      try {
+        const legacyKeys = [
+          STORAGE_KEY,
+          'pocketcode_workspace_files_v2',
+          'pocketcode_workspace_files',
+          'vscode_mobile_files_v1'
+        ];
+        for (const key of legacyKeys) {
+          const legacyStored = await get<any[]>(key);
+          if (legacyStored && Array.isArray(legacyStored) && legacyStored.length > 0) {
+            const { files: migrated } = this.migrateWorkspaceData(legacyStored);
+            this.files = migrated;
+            await this.saveWorkspace(true);
+            await this.syncProjectsIndex();
+            return this.files;
+          }
         }
-      }
-    } catch (e) {}
+      } catch (e) {}
+    }
 
     // 5. Default initial workspace
     const initialUntitled: FileItem = {
@@ -138,7 +140,7 @@ export class FileSystemService {
       isFolder: false
     };
     this.files = [initialUntitled];
-    await this.saveWorkspace();
+    await this.saveWorkspace(true);
     await this.syncProjectsIndex();
     return this.files;
   }
@@ -268,6 +270,9 @@ export class FileSystemService {
     templateId?: string,
     initialLanguage: string = 'javascript'
   ): Promise<{ projectId: string; files: FileItem[] }> {
+    // Flush current project edits before switching to new project
+    await this.saveWorkspace(true);
+
     const projectId = `proj_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
     const cleanName = name.trim() || 'New Project';
     this.currentProjectId = projectId;
@@ -310,7 +315,7 @@ export class FileSystemService {
       this.files = [starterFile];
     }
 
-    await this.saveWorkspace();
+    await this.saveWorkspace(true);
     await this.syncProjectsIndex();
     return { projectId, files: this.files };
   }
@@ -319,6 +324,13 @@ export class FileSystemService {
    * Switch between saved projects
    */
   async switchProject(projectId: string): Promise<FileItem[]> {
+    if (this.currentProjectId === projectId) {
+      return this.files;
+    }
+
+    // Flush current project edits before switching
+    await this.saveWorkspace(true);
+
     this.currentProjectId = projectId;
     localStorage.setItem(ACTIVE_PROJECT_ID_KEY, projectId);
 
@@ -335,9 +347,22 @@ export class FileSystemService {
     const projectStorageKey = `${STORAGE_KEY}_${projectId}`;
     try {
       const stored = await get<FileItem[]>(projectStorageKey);
-      if (stored && Array.isArray(stored)) {
+      if (stored && Array.isArray(stored) && stored.length > 0) {
         this.files = stored;
         return this.files;
+      }
+    } catch (e) {}
+
+    // Fallback: check localStorage project-specific backup
+    try {
+      const backupJson = localStorage.getItem(`${BACKUP_STORAGE_KEY}_${projectId}`);
+      if (backupJson) {
+        const backup = JSON.parse(backupJson);
+        if (Array.isArray(backup) && backup.length > 0) {
+          const { files: migrated } = this.migrateWorkspaceData(backup);
+          this.files = migrated;
+          return this.files;
+        }
       }
     } catch (e) {}
 
@@ -372,6 +397,9 @@ export class FileSystemService {
    * Duplicate an existing project
    */
   async duplicateProject(projectId: string): Promise<{ projectId: string; files: FileItem[] }> {
+    // Flush current project first
+    await this.saveWorkspace(true);
+
     const projects = await this.listProjects();
     const existing = projects.find(p => p.id === projectId);
     const baseName = existing ? existing.name : 'Project';
@@ -394,8 +422,6 @@ export class FileSystemService {
       localStorage.setItem(ACTIVE_PROJECT_NAME_KEY, newName);
       localStorage.setItem(`${ACTIVE_PROJECT_NAME_KEY}_${newProjectId}`, newName);
     } catch (e) {}
-    this.files = sourceFiles;
-    localStorage.setItem(ACTIVE_PROJECT_ID_KEY, newProjectId);
 
     await this.saveWorkspace(true);
     await this.syncProjectsIndex();
@@ -406,12 +432,18 @@ export class FileSystemService {
    * Delete a project
    */
   async deleteProject(projectId: string): Promise<void> {
+    if (this.saveTimeout) {
+      clearTimeout(this.saveTimeout);
+      this.saveTimeout = null;
+    }
+
     try {
       const projects = await this.listProjects();
       const filtered = projects.filter(p => p.id !== projectId);
       await set(PROJECTS_INDEX_KEY, filtered);
       await set(`${STORAGE_KEY}_${projectId}`, null);
       localStorage.removeItem(`${BACKUP_STORAGE_KEY}_${projectId}`);
+      localStorage.removeItem(`${ACTIVE_PROJECT_NAME_KEY}_${projectId}`);
 
       if (this.currentProjectId === projectId) {
         if (filtered.length > 0) {
@@ -524,12 +556,13 @@ export class FileSystemService {
       }
     }
 
+    await this.saveWorkspace(true);
     const projectId = `proj_gh_${Date.now()}`;
     this.currentProjectId = projectId;
     this.currentProjectName = projectName;
     this.files = newRoot;
     localStorage.setItem(ACTIVE_PROJECT_ID_KEY, projectId);
-    await this.saveWorkspace();
+    await this.saveWorkspace(true);
     await this.syncProjectsIndex();
     onProgress?.(`✅ Successfully cloned ${projectName}!`);
 
@@ -554,23 +587,30 @@ export class FileSystemService {
   private saveTimeout: any = null;
 
   async saveWorkspace(immediate: boolean = false): Promise<void> {
+    const targetProjectId = this.currentProjectId;
+    const targetFiles = this.files;
+
     this.saveToLocalStorage();
 
     const doSave = async () => {
-      const projectStorageKey = `${STORAGE_KEY}_${this.currentProjectId}`;
+      const projectStorageKey = `${STORAGE_KEY}_${targetProjectId}`;
       try {
-        await set(projectStorageKey, this.files);
-        await set(STORAGE_KEY, this.files);
+        await set(projectStorageKey, targetFiles);
       } catch (e) {
         console.error('Failed to save to IndexedDB:', e);
       }
     };
 
     if (immediate) {
+      if (this.saveTimeout) {
+        clearTimeout(this.saveTimeout);
+        this.saveTimeout = null;
+      }
       await doSave();
     } else {
       if (this.saveTimeout) clearTimeout(this.saveTimeout);
       this.saveTimeout = setTimeout(() => {
+        this.saveTimeout = null;
         doSave();
       }, 50);
     }
@@ -579,7 +619,6 @@ export class FileSystemService {
   saveToLocalStorage(): void {
     try {
       localStorage.setItem(`${BACKUP_STORAGE_KEY}_${this.currentProjectId}`, JSON.stringify(this.files));
-      localStorage.setItem(BACKUP_STORAGE_KEY, JSON.stringify(this.files));
       if (this.currentProjectName) {
         localStorage.setItem(`${ACTIVE_PROJECT_NAME_KEY}_${this.currentProjectId}`, this.currentProjectName);
         localStorage.setItem(ACTIVE_PROJECT_NAME_KEY, this.currentProjectName);
@@ -946,6 +985,9 @@ export class FileSystemService {
       }
     }
 
+    // Flush active project before creating imported folder project
+    await this.saveWorkspace(true);
+
     const projectId = `proj_folder_${Date.now()}`;
     this.currentProjectId = projectId;
     this.currentProjectName = folderName;
@@ -1004,12 +1046,15 @@ export class FileSystemService {
       }
     }
 
+    // Flush active project before creating imported zip project
+    await this.saveWorkspace(true);
+
     const projectName = file.name.replace(/\.zip$/i, '');
     this.currentProjectId = `proj_zip_${Date.now()}`;
     this.currentProjectName = projectName;
     this.files = newRoot;
     localStorage.setItem(ACTIVE_PROJECT_ID_KEY, this.currentProjectId);
-    await this.saveWorkspace();
+    await this.saveWorkspace(true);
     await this.syncProjectsIndex();
     return this.files;
   }

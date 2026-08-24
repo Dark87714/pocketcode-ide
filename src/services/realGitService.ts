@@ -1,7 +1,11 @@
 import git from 'isomorphic-git';
 import http from 'isomorphic-git/http/web';
+import { get as idbGet, set as idbSet } from 'idb-keyval';
 import { fileSystemService } from './fileSystem';
 import { GitCommit } from '../types';
+
+const GH_TOKEN_STORAGE_KEY = 'pocketcode_gh_token_v1';
+const LEGACY_GH_TOKEN_KEY = 'pocketcode_gh_token';
 
 export interface GitRemoteConfig {
   name: string;
@@ -157,17 +161,34 @@ export class RealGitService {
     this.initRepo();
   }
 
-  setGitHubToken(token: string) {
+  async setGitHubToken(token: string): Promise<void> {
     this.githubToken = token;
-    if (typeof localStorage !== 'undefined') {
-      localStorage.setItem('pocketcode_gh_token', token);
-    }
+    try {
+      await idbSet(GH_TOKEN_STORAGE_KEY, token);
+      if (typeof localStorage !== 'undefined') {
+        localStorage.removeItem(LEGACY_GH_TOKEN_KEY);
+      }
+    } catch {}
   }
 
-  getGitHubToken(): string {
-    if (!this.githubToken && typeof localStorage !== 'undefined') {
-      this.githubToken = localStorage.getItem('pocketcode_gh_token') || '';
-    }
+  async getGitHubToken(): Promise<string> {
+    if (this.githubToken) return this.githubToken;
+    try {
+      const stored = await idbGet<string>(GH_TOKEN_STORAGE_KEY);
+      if (stored) {
+        this.githubToken = stored;
+        return stored;
+      }
+      if (typeof localStorage !== 'undefined') {
+        const legacy = localStorage.getItem(LEGACY_GH_TOKEN_KEY);
+        if (legacy) {
+          this.githubToken = legacy;
+          await idbSet(GH_TOKEN_STORAGE_KEY, legacy);
+          localStorage.removeItem(LEGACY_GH_TOKEN_KEY);
+          return legacy;
+        }
+      }
+    } catch {}
     return this.githubToken;
   }
 
@@ -340,7 +361,7 @@ export class RealGitService {
   }
 
   async push(remote: string = 'origin', branch: string = 'main', onProgress?: (msg: string) => void) {
-    const token = this.getGitHubToken();
+    const token = await this.getGitHubToken();
     if (!token) {
       throw new Error('GitHub Personal Access Token required to push. Configure in Source Control settings.');
     }

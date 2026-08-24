@@ -19,35 +19,29 @@ export interface TableInfo {
 
 class SQLiteService {
   private initialized = false;
-  private initializing = false;
+  private initPromise: Promise<void> | null = null;
 
   async initialize(): Promise<void> {
     if (this.initialized) return;
-    if (this.initializing) {
-      // Wait for initialization
-      await new Promise<void>(resolve => {
-        const check = setInterval(() => {
-          if (this.initialized) { clearInterval(check); resolve(); }
-        }, 100);
-      });
-      return;
-    }
+    if (this.initPromise) return this.initPromise;
 
-    this.initializing = true;
-    try {
-      // Dynamic import to avoid build issues on unsupported environments
-      const sqlite3InitModule = (await import('@sqlite.org/sqlite-wasm')).default;
-      sqliteModule = await (sqlite3InitModule as any)({ print: () => {}, printErr: () => {} });
-      const sqlite3 = sqliteModule.sqlite3;
-      db = new sqlite3.oo1.DB();
-      this.initialized = true;
-      console.log('[SQLite] Initialized SQLite WASM');
-    } catch (e) {
-      console.error('[SQLite] Failed to initialize:', e);
-      // Fallback: create a simple in-memory simulation
-      this.initialized = true;
-    }
-    this.initializing = false;
+    this.initPromise = (async () => {
+      try {
+        const sqlite3InitModule = (await import('@sqlite.org/sqlite-wasm')).default;
+        sqliteModule = await (sqlite3InitModule as any)({ print: () => {}, printErr: () => {} });
+        const sqlite3 = sqliteModule.sqlite3;
+        db = new sqlite3.oo1.DB();
+        this.initialized = true;
+        console.log('[SQLite] Initialized SQLite WASM');
+      } catch (e) {
+        console.warn('[SQLite] Failed to initialize SQLite WASM:', e);
+        this.initialized = false;
+      } finally {
+        this.initPromise = null;
+      }
+    })();
+
+    return this.initPromise;
   }
 
   async executeQuery(sql: string): Promise<QueryResult> {

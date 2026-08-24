@@ -66,7 +66,31 @@ class CompilerService {
   }
 
   setEndpoint(url: string) {
-    this.endpoint = url.trim().replace(/\/+$/, '');
+    if (!url || typeof url !== 'string') {
+      throw new Error('Invalid compiler endpoint URL');
+    }
+    const cleanUrl = url.trim().replace(/\/+$/, '');
+    let parsed: URL;
+    try {
+      parsed = new URL(cleanUrl);
+    } catch {
+      throw new Error('Malformed compiler endpoint URL');
+    }
+
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      throw new Error('Compiler endpoint must use HTTP or HTTPS');
+    }
+
+    const hostname = parsed.hostname.toLowerCase();
+    if (
+      hostname === '169.254.169.254' ||
+      hostname === 'metadata.google.internal' ||
+      hostname === 'instance-data'
+    ) {
+      throw new Error('Target endpoint is blocked by security firewall');
+    }
+
+    this.endpoint = cleanUrl;
     localStorage.setItem(COMPILER_ENDPOINT_KEY, this.endpoint);
   }
 
