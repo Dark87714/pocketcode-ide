@@ -117,3 +117,42 @@ html, body {
   -ms-overflow-style: none;
   scrollbar-width: none;
 }
+
+/* Monaco Breakpoint & Debugging Glyphs */
+.monaco-breakpoint-glyph {
+  background: #e51400 !important;
+  border-radius: 50% !important;
+  width: 10px !important;
+  height: 10px !important;
+  margin-left: 5px !important;
+  margin-top: 4px !important;
+  cursor: pointer !important;
+  box-shadow: 0 0 6px rgba(229, 20, 0, 0.8) !important;
+}
+
+.monaco-debug-paused-glyph {
+  width: 0 !important;
+  height: 0 !important;
+  border-top: 6px solid transparent !important;
+  border-bottom: 6px solid transparent !important;
+  border-left: 10px solid #ffd700 !important;
+  margin-left: 6px !important;
+  margin-top: 3px !important;
+  filter: drop-shadow(0 0 4px #ffd700) !important;
+}
+
+.monaco-debug-paused-line {
+  background: rgba(255, 215, 0, 0.18) !important;
+  border-left: 3px solid #ffd700 !important;
+}
+
+/* GitLens In-line Blame Annotation */
+.monaco-gitlens-blame-inline {
+  color: #6a737d !important;
+  font-style: italic !important;
+  font-size: 11px !important;
+  user-select: none !important;
+  pointer-events: none !important;
+  opacity: 0.75;
+}
+

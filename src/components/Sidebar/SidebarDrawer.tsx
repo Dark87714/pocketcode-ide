@@ -8,8 +8,12 @@ import { RunDebugPanel } from './RunDebugPanel';
 import { ExtensionsPanel } from './ExtensionsPanel';
 import { SettingsPanel } from './SettingsPanel';
 import { SecurityPanel } from './SecurityPanel';
+import { AIChatPanel } from './AIChatPanel';
 
 interface SidebarDrawerProps {
+  activeFileContent?: string;
+  activeFileLanguage?: string;
+  activeFileName?: string;
   isOpen: boolean;
   activeTab: ActiveSidebarTab;
   files: FileItem[];
@@ -21,7 +25,7 @@ interface SidebarDrawerProps {
   settings: EditorSettings;
   projectName?: string;
   onClose: () => void;
-  onOpenFile: (file: FileItem) => void;
+  onOpenFile: (file: FileItem, line?: number) => void;
   onCreateFile: (name: string, isFolder?: boolean, targetFolderId?: string | null) => void;
   onDeleteFile: (fileId: string) => void;
   onRenameFile: (fileId: string, newName: string) => void;
@@ -29,6 +33,7 @@ interface SidebarDrawerProps {
   onOpenTemplates: () => void;
   onExportZip: () => void;
   onReplaceInFile: (fileId: string, search: string, replace: string, matchCase?: boolean, isRegex?: boolean) => void;
+  onStartDebugging: () => void;
   onRunPreview: () => void;
   onRunPython: () => void;
   onOpenTerminal: () => void;
@@ -64,6 +69,7 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
   onOpenTemplates,
   onExportZip,
   onReplaceInFile,
+  onStartDebugging,
   onRunPreview,
   onRunPython,
   onOpenTerminal,
@@ -76,7 +82,10 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
   onOpenNewProject,
   onJumpToLine,
   sidebarWidth = 240,
-  onWidthChange
+  onWidthChange,
+  activeFileContent,
+  activeFileLanguage,
+  activeFileName
 }) => {
   const [width, setWidth] = useState<number>(() => {
     const saved = localStorage.getItem('pocketcode_sidebar_width');
@@ -119,7 +128,6 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
       localStorage.setItem('pocketcode_sidebar_width', width.toString());
-      // Trigger window resize event to tell Monaco editor to re-layout instantly
       window.dispatchEvent(new Event('resize'));
     }
   }, [width]);
@@ -191,10 +199,7 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
                 projectName={projectName}
                 onOpenFile={(f) => {
                   onOpenFile(f);
-                  // On mobile/landscape, close sidebar on file selection to give maximum code space
-                  if (window.innerWidth < 768) {
-                    onClose();
-                  }
+                  if (window.innerWidth < 768) onClose();
                 }}
                 onCreateFile={onCreateFile}
                 onDeleteFile={onDeleteFile}
@@ -213,14 +218,13 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
 
             {activeTab === 'search' && (
               <SearchPanel
-                files={files}
-                onOpenFile={(f) => {
-                  onOpenFile(f);
+                onOpenFile={(f, line) => {
+                  onOpenFile(f, line);
                   if (window.innerWidth < 768) onClose();
                 }}
-                onReplaceInFile={onReplaceInFile}
               />
             )}
+
             {activeTab === 'git' && (
               <SourceControl
                 onOpenDiff={(fileName) => {
@@ -229,8 +233,14 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
                 }}
               />
             )}
+
             {activeTab === 'run' && (
               <RunDebugPanel
+                activeFile={activeFile}
+                onStartDebugging={() => {
+                  onStartDebugging();
+                  if (window.innerWidth < 768) onClose();
+                }}
                 onRunPreview={() => {
                   onRunPreview();
                   if (window.innerWidth < 768) onClose();
@@ -239,10 +249,19 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
                   onRunPython();
                   if (window.innerWidth < 768) onClose();
                 }}
-                onOpenTerminal={() => {
-                  onOpenTerminal();
+                onJumpToLine={(file, line) => {
+                  const target = files.find(f => f.path === file || f.name === file);
+                  if (target) onOpenFile(target, line);
                   if (window.innerWidth < 768) onClose();
                 }}
+              />
+            )}
+
+            {activeTab === 'ai' && (
+              <AIChatPanel
+                activeFileContent={activeFileContent}
+                activeFileLanguage={activeFileLanguage}
+                activeFileName={activeFileName}
               />
             )}
             {activeTab === 'security' && <SecurityPanel files={files} onOpenTerminal={onOpenTerminal} />}
@@ -253,7 +272,7 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
           </div>
         </div>
 
-        {/* Resizable Divider Handle (Drag to resize Explorer) */}
+        {/* Resizable Divider Handle */}
         <div
           onMouseDown={handleMouseDown}
           onTouchStart={handleTouchStart}

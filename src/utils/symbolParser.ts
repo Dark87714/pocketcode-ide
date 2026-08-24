@@ -159,3 +159,5 @@ export function extractSymbols(content: string, language: string = 'javascript')
 
   return symbols;
 }
+
+export const parseDocumentSymbols = extractSymbols;

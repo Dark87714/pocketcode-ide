@@ -1,7 +1,7 @@
 import React from 'react';
 import { 
   Files, Search, GitFork, PlayCircle, 
-  Boxes, Sparkles, Settings, Terminal, Bug, ShieldCheck
+  Boxes, Sparkles, Settings, Terminal, Bug, ShieldCheck, Bot
 } from 'lucide-react';
 import { ActiveSidebarTab } from '../../types';
 
@@ -22,7 +22,8 @@ export const ActivityBar: React.FC<ActivityBarProps> = ({
     { id: 'explorer', label: 'Explorer', icon: <Files size={20} /> },
     { id: 'search', label: 'Search', icon: <Search size={20} /> },
     { id: 'git', label: 'Git', icon: <GitFork size={20} /> },
-    { id: 'run', label: 'Run', icon: <PlayCircle size={20} /> },
+    { id: 'run', label: 'Debug', icon: <PlayCircle size={20} /> },
+    { id: 'ai', label: 'AI Chat', icon: <Bot size={20} className="text-violet-400" /> },
     { id: 'security', label: 'Security', icon: <ShieldCheck size={20} className="text-emerald-400" /> },
     { id: 'extensions', label: 'Extensions', icon: <Boxes size={20} /> },
     { id: 'settings', label: 'Settings', icon: <Settings size={20} /> },

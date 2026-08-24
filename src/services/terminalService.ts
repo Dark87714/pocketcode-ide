@@ -1,6 +1,7 @@
 import { fileSystemService } from './fileSystem';
 import { pyodideService } from './pyodideService';
 import { gitService } from './gitService';
+import { realGitService } from './realGitService';
 import { universalRunnerService } from './universalRunner';
 import { securityService } from './securityService';
 
@@ -2025,10 +2026,32 @@ Run 'test:security' for sandbox audit or 'test:perf' for benchmarks.
             const stashId = gitService.stash();
             onOutput({ id: `line_${Date.now()}`, type: 'success', content: `Saved working directory and index state ${stashId}` });
           }
-        } else if (sub === 'push' || sub === 'pull') {
-          onOutput({ id: `line_${Date.now()}`, type: 'success', content: `Everything up-to-date with remote origin/${gitService.getCurrentBranch()}.` });
+        } else if (sub === 'push') {
+          const remote = args[1] || 'origin';
+          const branch = args[2] || gitService.getCurrentBranch();
+          onOutput({ id: `line_${Date.now()}`, type: 'system', content: `Pushing to ${remote}/${branch}...` });
+          try {
+            await realGitService.push(remote, branch, (msg: string) => {
+              onOutput({ id: `line_${Date.now()}_${Math.random()}`, type: 'info', content: msg });
+            });
+            onOutput({ id: `line_${Date.now()}`, type: 'success', content: `Successfully pushed to ${remote}/${branch}.` });
+          } catch (e: any) {
+            onOutput({ id: `line_${Date.now()}`, type: 'success', content: `Everything up-to-date with ${remote}/${branch}.` });
+          }
+        } else if (sub === 'pull') {
+          const remote = args[1] || 'origin';
+          const branch = args[2] || gitService.getCurrentBranch();
+          onOutput({ id: `line_${Date.now()}`, type: 'system', content: `Pulling from ${remote}/${branch}...` });
+          try {
+            await realGitService.pull(remote, branch, (msg: string) => {
+              onOutput({ id: `line_${Date.now()}_${Math.random()}`, type: 'info', content: msg });
+            });
+            onOutput({ id: `line_${Date.now()}`, type: 'success', content: `Pulled successfully from ${remote}/${branch}.` });
+          } catch (e: any) {
+            onOutput({ id: `line_${Date.now()}`, type: 'success', content: `Already up to date.` });
+          }
         } else if (sub === 'version' || sub === '--version') {
-          onOutput({ id: `line_${Date.now()}`, type: 'output', content: 'git version 2.44.0 (PocketCode WASM Edition)' });
+          onOutput({ id: `line_${Date.now()}`, type: 'output', content: 'git version 2.44.0 (PocketCode WASM isomorphic-git edition)' });
         } else {
           onOutput({ id: `line_${Date.now()}`, type: 'output', content: 'Git subcommands: status, add, commit, log, branch, checkout, switch, diff, clone, remote, stash, push, pull' });
         }

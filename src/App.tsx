@@ -7,6 +7,8 @@ import { fileSystemService } from './services/fileSystem';
 import { themeService } from './services/themeService';
 import { universalRunnerService } from './services/universalRunner';
 import { formatterService } from './services/formatterService';
+import { debuggerService } from './services/debuggerService';
+import { projectSettingsService } from './services/projectSettingsService';
 import { PROJECT_TEMPLATES } from './services/templates';
 import { TopBar } from './components/Header/TopBar';
 import { ActivityBar } from './components/Sidebar/ActivityBar';
@@ -19,10 +21,12 @@ import { MobileKeybar } from './components/Editor/MobileKeybar';
 import { BottomDrawer } from './components/Panels/BottomDrawer';
 import { StatusBar } from './components/Footer/StatusBar';
 import { WelcomeTab } from './components/Editor/WelcomeTab';
+import { MarkdownPreview } from './components/Editor/MarkdownPreview';
 
 // Fast dynamic imports for heavy modals and viewers
 const LivePreview = lazy(() => import('./components/PreviewModal/LivePreview').then(m => ({ default: m.LivePreview })));
 const CommandPalette = lazy(() => import('./components/CommandPalette/CommandPalette').then(m => ({ default: m.CommandPalette })));
+const QuickOpenModal = lazy(() => import('./components/Modals/QuickOpenModal').then(m => ({ default: m.QuickOpenModal })));
 const TemplatesModal = lazy(() => import('./components/Modals/TemplatesModal').then(m => ({ default: m.TemplatesModal })));
 const NewProjectModal = lazy(() => import('./components/Modals/NewProjectModal').then(m => ({ default: m.NewProjectModal })));
 const FeedbackModal = lazy(() => import('./components/Modals/FeedbackModal').then(m => ({ default: m.FeedbackModal })));
@@ -84,6 +88,8 @@ export function App() {
   const [isBottomDrawerExpanded, setIsBottomDrawerExpanded] = useState(false);
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
+  const [isQuickOpenOpen, setIsQuickOpenOpen] = useState(false);
+  const [jumpToLine, setJumpToLine] = useState<number | null>(null);
   const [isTemplatesModalOpen, setIsTemplatesModalOpen] = useState(false);
   const [isNewProjectModalOpen, setIsNewProjectModalOpen] = useState(false);
   const [isFeedbackModalOpen, setIsFeedbackModalOpen] = useState(false);
@@ -95,10 +101,11 @@ export function App() {
   const [saveStatus, setSaveStatus] = useState<'saved' | 'saving'>('saved');
   const [currentProjectName, setCurrentProjectName] = useState(() => fileSystemService.getCurrentProjectName());
 
-  // New Feature States: Split Editor, Touch Find/Replace, Visual Diff
+  // New Feature States: Split Editor, Touch Find/Replace, Visual Diff, Markdown Preview
   const [isSplitEditor, setIsSplitEditor] = useState(false);
   const [splitActiveTabId, setSplitActiveTabId] = useState<string | null>(null);
   const [isFindReplaceOpen, setIsFindReplaceOpen] = useState(false);
+  const [isMarkdownPreviewOpen, setIsMarkdownPreviewOpen] = useState(false);
   const [selectedText, setSelectedText] = useState('');
   const [diffState, setDiffState] = useState<{
     isOpen: boolean;
@@ -236,9 +243,34 @@ export function App() {
   // Global Keyboard Shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'p') {
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'p') {
         e.preventDefault();
         setIsCommandPaletteOpen(prev => !prev);
+      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'p') {
+        e.preventDefault();
+        setIsQuickOpenOpen(prev => !prev);
+      } else if (e.key === 'F5') {
+        e.preventDefault();
+        handleStartDebugging();
+      } else if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'f') {
+        e.preventDefault();
+        setActiveSidebarTab('search');
+        setIsSidebarOpen(true);
+      } else if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'g') {
+        e.preventDefault();
+        setActiveSidebarTab('git');
+        setIsSidebarOpen(true);
+      } else if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'd') {
+        e.preventDefault();
+        setActiveSidebarTab('run');
+        setIsSidebarOpen(true);
+      } else if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'a') {
+        e.preventDefault();
+        setActiveSidebarTab('ai');
+        setIsSidebarOpen(true);
+      } else if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'm') {
+        e.preventDefault();
+        setIsMarkdownPreviewOpen(prev => !prev);
       } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'n') {
         e.preventDefault();
         handleCreateUntitled('js');
@@ -319,8 +351,11 @@ export function App() {
     openFile(newFile);
   };
 
-  const openFile = (file: FileItem) => {
+  const openFile = (file: FileItem, line?: number) => {
     if (file.isFolder) return;
+    if (line) {
+      setJumpToLine(line);
+    }
 
     setTabs(prev => {
       const existing = prev.find(t => t.fileId === file.id || t.path === file.path);
@@ -527,9 +562,9 @@ export function App() {
     }
   };
 
-  const handleFormatDocument = () => {
+  const handleFormatDocument = async () => {
     if (!activeFile || !editorInstanceRef.current) return;
-    const formatted = formatterService.formatCode(activeFile.content, activeFile.language);
+    const formatted = await formatterService.formatCode(activeFile.content, activeFile.language, { tabSize: settings.tabSize });
     const model = editorInstanceRef.current.getModel();
     if (model && model.getValue() !== formatted) {
       editorInstanceRef.current.executeEdits('format', [{
@@ -537,6 +572,24 @@ export function App() {
         text: formatted
       }]);
     }
+  };
+
+  const handleStartDebugging = async () => {
+    if (!activeFile) return;
+    setActiveSidebarTab('run');
+    setIsSidebarOpen(true);
+    setIsTerminalOpen(true);
+    setActiveBottomTab('output');
+    setOutputLogs([`⚡ [Debugger] Initializing interactive debug session for ${activeFile.name}...`]);
+
+    await debuggerService.startDebugging(
+      activeFile.path,
+      activeFile.content,
+      activeFile.language,
+      (line, type) => {
+        setOutputLogs(prev => [...prev, line]);
+      }
+    );
   };
 
   const handleToggleSplitEditor = () => {
@@ -801,6 +854,9 @@ export function App() {
           diagnostics={problems}
           settings={settings}
           projectName={currentProjectName}
+          activeFileContent={activeFile?.content}
+          activeFileLanguage={activeFile?.language}
+          activeFileName={activeFile?.name}
           onClose={() => setIsSidebarOpen(false)}
           onOpenFile={openFile}
           onCreateFile={handleCreateFile}
@@ -811,6 +867,7 @@ export function App() {
           onOpenNewProject={() => setIsNewProjectModalOpen(true)}
           onExportZip={handleExportZip}
           onReplaceInFile={handleReplaceInFile}
+          onStartDebugging={handleStartDebugging}
           onRunPreview={handleRunPreview}
           onRunPython={handleRunPythonScript}
           onOpenTerminal={() => {
@@ -884,12 +941,41 @@ export function App() {
                       <Suspense fallback={<div className="flex-1 bg-[#1e1e1e]" />}>
                         <MediaViewer file={activeFile} />
                       </Suspense>
+                    ) : activeFile.language === 'markdown' && isMarkdownPreviewOpen ? (
+                      <div className="flex-1 flex overflow-hidden h-full">
+                        <div className="flex-1 overflow-hidden">
+                          <CodeEditor
+                            content={activeFile.content}
+                            language={activeFile.language}
+                            path={activeFile.path}
+                            settings={settings}
+                            jumpToLine={jumpToLine}
+                            onChange={handleEditorChange}
+                            onMountInstance={(editor, monaco) => {
+                              editorInstanceRef.current = editor;
+                              monacoInstanceRef.current = monaco;
+                              editor.onDidChangeCursorPosition((e: any) => {
+                                setCursorPosition({ line: e.position.lineNumber, col: e.position.column });
+                              });
+                            }}
+                            onDiagnosticsUpdate={() => {}}
+                          />
+                        </div>
+                        <div className="w-px bg-[#333]" />
+                        <div className="flex-1 overflow-hidden">
+                          <MarkdownPreview
+                            content={activeFile.content}
+                            fileName={activeFile.name}
+                          />
+                        </div>
+                      </div>
                     ) : (
                       <CodeEditor
                         content={activeFile.content}
                         language={activeFile.language}
                         path={activeFile.path}
                         settings={settings}
+                        jumpToLine={jumpToLine}
                         onChange={handleEditorChange}
                         onMountInstance={(editor, monaco) => {
                           editorInstanceRef.current = editor;
@@ -1011,6 +1097,8 @@ export function App() {
           setActiveBottomTab('problems');
         }}
         onSelectLanguage={handleSelectLanguage}
+        onToggleMarkdownPreview={() => setIsMarkdownPreviewOpen(prev => !prev)}
+        isMarkdownPreviewOpen={isMarkdownPreviewOpen}
       />
 
       {/* Mobile Bottom Navigation Bar */}
@@ -1072,6 +1160,18 @@ export function App() {
               setIsSidebarOpen(true);
             }}
             onRunPython={handleRunPythonScript}
+          />
+        </Suspense>
+      )}
+
+      {/* Quick Open Modal (Ctrl+P) */}
+      {isQuickOpenOpen && (
+        <Suspense fallback={null}>
+          <QuickOpenModal
+            isOpen={isQuickOpenOpen}
+            onClose={() => setIsQuickOpenOpen(false)}
+            onOpenFile={(file, line) => openFile(file, line)}
+            activeFile={activeFile}
           />
         </Suspense>
       )}

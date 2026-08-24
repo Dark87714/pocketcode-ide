@@ -25,6 +25,7 @@ export type ActiveSidebarTab =
   | 'search' 
   | 'git' 
   | 'run' 
+  | 'ai'
   | 'extensions' 
   | 'security'
   | 'settings';

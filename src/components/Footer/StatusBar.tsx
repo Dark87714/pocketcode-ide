@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { GitFork, AlertCircle, CheckCircle2, Code2, Globe, Sparkles, X } from 'lucide-react';
+import { GitFork, AlertCircle, CheckCircle2, Code2, Globe, Sparkles, X, BookOpen } from 'lucide-react';
 import { DiagnosticProblem } from '../../types';
 
 export const ALL_LANGUAGES = [
@@ -28,6 +28,8 @@ interface StatusBarProps {
   branch?: string;
   onOpenTerminal?: () => void;
   onSelectLanguage?: (langId: string) => void;
+  onToggleMarkdownPreview?: () => void;
+  isMarkdownPreviewOpen?: boolean;
 }
 
 export const StatusBar: React.FC<StatusBarProps> = ({
@@ -36,7 +38,9 @@ export const StatusBar: React.FC<StatusBarProps> = ({
   problems = [],
   branch = 'main',
   onOpenTerminal,
-  onSelectLanguage
+  onSelectLanguage,
+  onToggleMarkdownPreview,
+  isMarkdownPreviewOpen = false
 }) => {
   const [isLangModalOpen, setIsLangModalOpen] = useState(false);
   const [search, setSearch] = useState('');
@@ -107,6 +111,20 @@ export const StatusBar: React.FC<StatusBarProps> = ({
             <span>{activeLangObj.icon}</span>
             <span>{activeLangObj.name}</span>
           </button>
+
+          {/* Markdown Preview Toggle */}
+          {currentLanguage === 'markdown' && onToggleMarkdownPreview && (
+            <button
+              onClick={onToggleMarkdownPreview}
+              className={`flex items-center gap-1 px-1.5 py-0.5 rounded transition-colors font-semibold ${
+                isMarkdownPreviewOpen ? 'bg-white/30 text-white' : 'hover:bg-white/20'
+              }`}
+              title="Toggle Markdown Preview (Ctrl+Shift+M)"
+            >
+              <BookOpen size={11} />
+              <span className="hidden sm:inline">Preview</span>
+            </button>
+          )}
         </div>
       </footer>
 

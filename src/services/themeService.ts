@@ -274,6 +274,28 @@ export const THEMES: IDETheme[] = [
         'editor.selectionBackground': '#3a4b6333',
       }
     }
+  },
+  {
+    id: 'hc-black',
+    name: 'High Contrast Dark (Accessibility)',
+    type: 'dark',
+    bg: '#000000',
+    sidebarBg: '#000000',
+    activityBg: '#000000',
+    statusBarBg: '#000000',
+    accent: '#00ffff',
+    monacoTheme: 'hc-black'
+  },
+  {
+    id: 'hc-light',
+    name: 'High Contrast Light (Accessibility)',
+    type: 'light',
+    bg: '#ffffff',
+    sidebarBg: '#ffffff',
+    activityBg: '#ffffff',
+    statusBarBg: '#0f4b85',
+    accent: '#0000ff',
+    monacoTheme: 'hc-light'
   }
 ];
 
