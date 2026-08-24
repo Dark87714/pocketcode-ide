@@ -2,6 +2,8 @@ import { FileItem } from '../types';
 import { pyodideService } from './pyodideService';
 import { fileSystemService } from './fileSystem';
 import { securityService } from './securityService';
+import { compilerService } from './compilerService';
+import { sqliteService } from './sqliteService';
 
 export interface RunResult {
   language: string;
@@ -263,72 +265,71 @@ export class UniversalRunnerService {
       }
     }
 
-    // 3. C & C++ RUNNER
-    if (lang === 'cpp' || lang === 'c' || ext === 'cpp' || ext === 'c' || ext === 'cc' || ext === 'h') {
-      onOutput(`⚡ Compiling ${file.name} (Clang / GCC C++20 WASM Toolchain)...`, 'system');
-      await new Promise(r => setTimeout(r, 400));
-      onOutput(`[1/2] Parsing AST & type checking headers...`, 'system');
-      await new Promise(r => setTimeout(r, 300));
-      onOutput(`[2/2] Linking object binaries -> ./a.out`, 'system');
-      await new Promise(r => setTimeout(r, 200));
-      onOutput(`🚀 Running ./a.out:\n`, 'system');
-
-      // Execute simulated C++ standard library / parser
-      this.executeCppSimulation(file.content, onOutput);
-      return { language: 'C++', type: 'terminal' };
-    }
-
-    // 4. RUST RUNNER
-    if (lang === 'rust' || ext === 'rs') {
-      onOutput(`⚡ Compiling ${file.name} (rustc 1.76.0 Edition 2021)...`, 'system');
-      await new Promise(r => setTimeout(r, 400));
-      onOutput(`Compiling crate \`workspace\` (bin "main")`, 'system');
-      await new Promise(r => setTimeout(r, 300));
-      onOutput(`Finished dev [unoptimized + debuginfo] target(s) in 0.42s`, 'system');
-      onOutput(`🚀 Running \`target/debug/main\`:\n`, 'system');
-
-      this.executeRustSimulation(file.content, onOutput);
-      return { language: 'Rust', type: 'terminal' };
-    }
-
-    // 5. SQL DATABASE ENGINE (SQLite in-browser relational runner)
+    // 3. SQL DATABASE ENGINE (SQLite in-browser WASM relational runner)
     if (lang === 'sql' || ext === 'sql') {
-      onOutput(`⚡ Executing SQL Queries against in-memory relational database...`, 'system');
-      this.executeSqlSimulation(file.content, onOutput);
-      return { language: 'SQL', type: 'terminal' };
+      onOutput(`⚡ Executing SQL Queries (SQLite WASM)...`, 'system');
+      try {
+        const result = await sqliteService.executeQuery(file.content);
+        if (result.error) {
+          onOutput(`❌ SQL Error: ${result.error}`, 'stderr');
+          return { language: 'SQL', type: 'terminal', error: result.error };
+        }
+        if (result.columns.length > 0) {
+          this.formatSqlTable(result.columns, result.rows, onOutput);
+          onOutput(`\n✨ Query OK: ${result.rows.length} row(s) in set (${result.executionTimeMs}ms)`, 'system');
+        } else {
+          onOutput(`✅ Statement executed successfully (${result.rowsAffected || 0} row(s) affected, ${result.executionTimeMs}ms)`, 'system');
+        }
+        return { language: 'SQL', type: 'terminal', sqlResult: { headers: result.columns, rows: result.rows } };
+      } catch (err: any) {
+        onOutput(`❌ SQL Execution Error: ${err.message}`, 'stderr');
+        return { language: 'SQL', type: 'terminal', error: err.message };
+      }
     }
 
-    // 6. GO (GOLANG) RUNNER
-    if (lang === 'go' || ext === 'go') {
-      onOutput(`⚡ Compiling and running ${file.name} (go1.22.0 WASM)...`, 'system');
-      await new Promise(r => setTimeout(r, 350));
-      onOutput(`🚀 Output:\n`, 'system');
-      this.executeGoSimulation(file.content, onOutput);
-      return { language: 'Go', type: 'terminal' };
+    // 4. MULTI-LANGUAGE COMPILER & EXECUTION ENGINE (C, C++, Java, Rust, Go, C#, PHP, Ruby, Kotlin, Swift, Dart, Zig, etc.)
+    if (compilerService.isSupported(ext || lang)) {
+      const mapping = compilerService.resolveLanguage(ext || lang);
+      const displayLang = mapping ? mapping.language.toUpperCase() : lang.toUpperCase();
+      const versionStr = mapping?.version ? ` v${mapping.version}` : '';
+      onOutput(`⚡ Compiling & running ${file.name} (${displayLang}${versionStr})...`, 'system');
+
+      const result = await compilerService.execute(file.name, file.content, ext || lang);
+
+      if (result.compileOutput) {
+        onOutput(`[Compiler Diagnostics]\n${result.compileOutput}`, result.exitCode === 0 ? 'system' : 'stderr');
+      }
+
+      if (result.stdout) {
+        onOutput(result.stdout, 'stdout');
+      }
+
+      if (result.stderr) {
+        onOutput(result.stderr, 'stderr');
+      }
+
+      if (result.success) {
+        onOutput(`\n✨ Process finished with exit code 0 (${result.executionTimeMs || 0}ms)`, 'system');
+        return { language: displayLang, type: 'terminal', output: [result.stdout] };
+      } else {
+        onOutput(`\n❌ Process exited with code ${result.exitCode}${result.signal ? ` (Signal: ${result.signal})` : ''}`, 'stderr');
+        return { language: displayLang, type: 'terminal', error: result.stderr || result.compileOutput };
+      }
     }
 
-    // 7. JAVA RUNNER
-    if (lang === 'java' || ext === 'java') {
-      onOutput(`⚡ Compiling ${file.name} (OpenJDK 21 javac)...`, 'system');
-      await new Promise(r => setTimeout(r, 350));
-      onOutput(`Executing \`java ${file.name.replace(/\.java$/, '')}\`...\n`, 'system');
-      this.executeJavaSimulation(file.content, onOutput);
-      return { language: 'Java', type: 'terminal' };
-    }
-
-    // 8. HTML / CSS / WEB APP
+    // 5. HTML / CSS / WEB APP
     if (lang === 'html' || ext === 'html' || ext === 'htm') {
       return { language: 'HTML', type: 'preview' };
     }
 
-    // 9. MARKDOWN PREVIEW
+    // 6. MARKDOWN PREVIEW
     if (lang === 'markdown' || ext === 'md') {
       onOutput(`📄 Rendering Markdown Document...`, 'system');
       onOutput(file.content, 'stdout');
       return { language: 'Markdown', type: 'markdown' };
     }
 
-    // 10. JSON / YAML / XML
+    // 7. JSON / YAML / XML
     if (lang === 'json' || ext === 'json' || lang === 'yaml' || ext === 'yaml' || ext === 'yml') {
       try {
         if (ext === 'json') {
@@ -349,153 +350,38 @@ export class UniversalRunnerService {
     return { language: 'Text', type: 'terminal' };
   }
 
-  // --- C++ Execution Simulator with parsing of cout, printf, for loops, and math ---
-  private executeCppSimulation(
-    code: string,
+  // --- ASCII Table Formatter for SQLite WASM Results ---
+  private formatSqlTable(
+    columns: string[],
+    rows: any[][],
     onOutput: (line: string, type: 'stdout' | 'stderr' | 'system') => void
   ) {
-    const lines = code.split('\n');
-    let hasOutput = false;
-
-    // Search for std::cout << "..." or printf("...")
-    lines.forEach(line => {
-      const trimmed = line.trim();
-      if (trimmed.startsWith('//') || trimmed.startsWith('/*')) return;
-
-      // Match std::cout << ...
-      if (trimmed.includes('cout')) {
-        const coutMatches = trimmed.match(/cout\s*<<\s*["']([^"']+)["']/g);
-        if (coutMatches) {
-          coutMatches.forEach(m => {
-            const textMatch = m.match(/["']([^"']+)["']/);
-            if (textMatch) {
-              onOutput(textMatch[1].replace(/\\n/g, ''), 'stdout');
-              hasOutput = true;
-            }
-          });
-        }
+    if (columns.length === 0) return;
+    const colWidths = columns.map((col, idx) => {
+      let max = col.length;
+      for (const row of rows) {
+        const valStr = row[idx] !== null && row[idx] !== undefined ? String(row[idx]) : 'NULL';
+        if (valStr.length > max) max = valStr.length;
       }
-
-      // Match printf("...")
-      if (trimmed.includes('printf')) {
-        const printfMatch = trimmed.match(/printf\s*\(\s*["']([^"']+)["']/);
-        if (printfMatch) {
-          onOutput(printfMatch[1].replace(/\\n/g, ''), 'stdout');
-          hasOutput = true;
-        }
-      }
+      return Math.min(Math.max(max, 4), 40);
     });
 
-    if (!hasOutput) {
-      onOutput(`Program output: (Compiled successfully, main returned 0)`, 'stdout');
+    const separator = '+' + colWidths.map(w => '-'.repeat(w + 2)).join('+') + '+';
+    const headerRow = '|' + columns.map((c, i) => ` ${c.padEnd(colWidths[i])} `).join('|') + '|';
+
+    onOutput(separator, 'stdout');
+    onOutput(headerRow, 'stdout');
+    onOutput(separator, 'stdout');
+
+    for (const row of rows) {
+      const rowStr = '|' + row.map((val, i) => {
+        const str = val !== null && val !== undefined ? String(val) : 'NULL';
+        const truncated = str.length > colWidths[i] ? str.slice(0, colWidths[i] - 3) + '...' : str;
+        return ` ${truncated.padEnd(colWidths[i])} `;
+      }).join('|') + '|';
+      onOutput(rowStr, 'stdout');
     }
-    onOutput(`\n[Process exited 0]`, 'system');
-  }
-
-  // --- Rust Execution Simulator ---
-  private executeRustSimulation(
-    code: string,
-    onOutput: (line: string, type: 'stdout' | 'stderr' | 'system') => void
-  ) {
-    const lines = code.split('\n');
-    let hasOutput = false;
-
-    lines.forEach(line => {
-      const trimmed = line.trim();
-      if (trimmed.includes('println!')) {
-        const match = trimmed.match(/println!\s*\(\s*["']([^"']+)["']/);
-        if (match) {
-          onOutput(match[1], 'stdout');
-          hasOutput = true;
-        }
-      }
-    });
-
-    if (!hasOutput) {
-      onOutput(`Finished execution. Cargo binary exited with status 0.`, 'stdout');
-    }
-    onOutput(`\n[Finished dev target in 0.28s]`, 'system');
-  }
-
-  // --- SQL Database Simulator ---
-  private executeSqlSimulation(
-    code: string,
-    onOutput: (line: string, type: 'stdout' | 'stderr' | 'system') => void
-  ) {
-    const statements = code.split(';').map(s => s.trim()).filter(Boolean);
-    
-    statements.forEach((stmt, idx) => {
-      const upper = stmt.toUpperCase();
-      if (upper.startsWith('CREATE TABLE')) {
-        const tableNameMatch = stmt.match(/CREATE\s+TABLE\s+(IF\s+NOT\s+EXISTS\s+)?([a-zA-Z0-9_]+)/i);
-        const name = tableNameMatch ? tableNameMatch[2] : 'table';
-        onOutput(`✅ Query OK, table \`${name}\` created.`, 'stdout');
-      } else if (upper.startsWith('INSERT INTO')) {
-        onOutput(`✅ 1 row affected (0.01 sec).`, 'stdout');
-      } else if (upper.startsWith('SELECT')) {
-        onOutput(`\n📊 Result for: "${stmt}":`, 'system');
-        onOutput(`+----+----------------------+-------------------+---------+`, 'stdout');
-        onOutput(`| id | name                 | category          | status  |`, 'stdout');
-        onOutput(`+----+----------------------+-------------------+---------+`, 'stdout');
-        onOutput(`|  1 | Quantum Processor    | Hardware          | ACTIVE  |`, 'stdout');
-        onOutput(`|  2 | Neural Core v4       | AI & Compute      | READY   |`, 'stdout');
-        onOutput(`|  3 | Cyber Runner 2099    | Game Engine       | ONLINE  |`, 'stdout');
-        onOutput(`+----+----------------------+-------------------+---------+`, 'stdout');
-        onOutput(`3 rows in set (0.002 sec)\n`, 'system');
-      } else {
-        onOutput(`✅ Executed statement ${idx + 1}: Query OK`, 'stdout');
-      }
-    });
-  }
-
-  // --- Go Execution Simulator ---
-  private executeGoSimulation(
-    code: string,
-    onOutput: (line: string, type: 'stdout' | 'stderr' | 'system') => void
-  ) {
-    const lines = code.split('\n');
-    let hasOutput = false;
-
-    lines.forEach(line => {
-      const trimmed = line.trim();
-      if (trimmed.includes('fmt.Println') || trimmed.includes('fmt.Printf')) {
-        const match = trimmed.match(/fmt\.Print(ln|f)\s*\(\s*["']([^"']+)["']/);
-        if (match) {
-          onOutput(match[2].replace(/\\n/g, ''), 'stdout');
-          hasOutput = true;
-        }
-      }
-    });
-
-    if (!hasOutput) {
-      onOutput(`Go application executed successfully.`, 'stdout');
-    }
-    onOutput(`\n[Process completed: exit status 0]`, 'system');
-  }
-
-  // --- Java Execution Simulator ---
-  private executeJavaSimulation(
-    code: string,
-    onOutput: (line: string, type: 'stdout' | 'stderr' | 'system') => void
-  ) {
-    const lines = code.split('\n');
-    let hasOutput = false;
-
-    lines.forEach(line => {
-      const trimmed = line.trim();
-      if (trimmed.includes('System.out.println') || trimmed.includes('System.out.print')) {
-        const match = trimmed.match(/System\.out\.print(ln)?\s*\(\s*["']([^"']+)["']/);
-        if (match) {
-          onOutput(match[2], 'stdout');
-          hasOutput = true;
-        }
-      }
-    });
-
-    if (!hasOutput) {
-      onOutput(`Java Virtual Machine exited normally with return code 0.`, 'stdout');
-    }
-    onOutput(`\n[JVM process terminated successfully]`, 'system');
+    onOutput(separator, 'stdout');
   }
 }
 

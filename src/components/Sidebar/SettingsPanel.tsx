@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { Settings, Palette, Type, Sliders, Key, Sparkles, Smartphone, FolderCog, Save, RefreshCw } from 'lucide-react';
+import { Settings, Palette, Type, Sliders, Key, Sparkles, Smartphone, FolderCog, Save, RefreshCw, Cpu, Check, AlertCircle } from 'lucide-react';
 import { EditorSettings } from '../../types';
 import { THEMES } from '../../services/themeService';
 import { projectSettingsService, ProjectSettings } from '../../services/projectSettingsService';
+import { compilerService } from '../../services/compilerService';
 
 interface SettingsPanelProps {
   settings: EditorSettings;
@@ -34,10 +35,13 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
   settings,
   onUpdateSettings
 }) => {
-  const [activeSection, setActiveSection] = useState<'global' | 'project' | 'keybindings'>('global');
+  const [activeSection, setActiveSection] = useState<'global' | 'project' | 'compiler' | 'keybindings'>('global');
   const [projectSettings, setProjectSettings] = useState<ProjectSettings>({});
   const [isSavingProject, setIsSavingProject] = useState(false);
   const [savedMsg, setSavedMsg] = useState(false);
+  const [compilerEndpoint, setCompilerEndpoint] = useState(compilerService.getEndpoint());
+  const [endpointSaved, setEndpointSaved] = useState(false);
+  const [testResult, setTestResult] = useState<{ status: 'idle' | 'testing' | 'ok' | 'fail'; msg?: string }>({ status: 'idle' });
 
   useEffect(() => {
     projectSettingsService.load().then(ps => setProjectSettings(ps));
@@ -59,6 +63,33 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
     await projectSettingsService.save({});
   };
 
+  const handleSaveCompilerEndpoint = () => {
+    compilerService.setEndpoint(compilerEndpoint);
+    setEndpointSaved(true);
+    setTimeout(() => setEndpointSaved(false), 2000);
+  };
+
+  const handleResetCompilerEndpoint = () => {
+    compilerService.resetEndpoint();
+    setCompilerEndpoint(compilerService.getEndpoint());
+    setEndpointSaved(true);
+    setTimeout(() => setEndpointSaved(false), 2000);
+  };
+
+  const handleTestCompiler = async () => {
+    setTestResult({ status: 'testing' });
+    try {
+      const res = await compilerService.execute('test.c', '#include <stdio.h>\nint main() { printf("OK\\n"); return 0; }', 'c');
+      if (res.success && res.stdout.includes('OK')) {
+        setTestResult({ status: 'ok', msg: `Connected successfully (${res.executionTimeMs}ms)` });
+      } else {
+        setTestResult({ status: 'fail', msg: res.error || res.stderr || 'Execution failed' });
+      }
+    } catch (e: any) {
+      setTestResult({ status: 'fail', msg: e.message || 'Connection failed' });
+    }
+  };
+
   const updateProjSetting = <K extends keyof ProjectSettings>(key: K, value: ProjectSettings[K]) => {
     setProjectSettings(prev => ({ ...prev, [key]: value }));
   };
@@ -72,7 +103,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
 
       {/* Section Tabs */}
       <div className="flex border-b border-[#333] shrink-0">
-        {([['global', 'Global'], ['project', 'Project'], ['keybindings', 'Keybindings']] as const).map(([id, label]) => (
+        {([['global', 'Global'], ['project', 'Project'], ['compiler', 'Compiler'], ['keybindings', 'Keys']] as const).map(([id, label]) => (
           <button
             key={id}
             onClick={() => setActiveSection(id)}
@@ -249,6 +280,92 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
                 className="px-3 py-1.5 bg-[#3c3c3c] hover:bg-[#4c4c4c] text-[#ccc] rounded text-[11px] transition-colors">
                 <RefreshCw size={11} />
               </button>
+            </div>
+          </div>
+        )}
+
+        {/* ========== COMPILER & RUNTIMES ========== */}
+        {activeSection === 'compiler' && (
+          <div className="space-y-3">
+            <div className="flex items-center gap-1.5 font-semibold text-white">
+              <Cpu size={14} className="text-sky-400" />
+              <span>Multi-Language Compiler Engine</span>
+            </div>
+            <p className="text-[10px] text-[#888] leading-relaxed">
+              PocketCode includes native compilation & execution for 50+ languages (C, C++, Java, Rust, Go, C#, PHP, Python, Ruby, Kotlin, Swift, Dart, Zig, SQLite).
+            </p>
+
+            <div className="space-y-1.5 pt-1">
+              <span className="text-[#aaa] block text-[11px] font-medium">Compiler Backend Endpoint</span>
+              <input
+                type="text"
+                placeholder="https://emkc.org/api/v2/piston"
+                value={compilerEndpoint}
+                onChange={e => setCompilerEndpoint(e.target.value)}
+                className="w-full bg-[#1e1e1e] border border-[#3c3c3c] rounded px-2 py-1.5 text-white focus:outline-none text-[11px] font-mono"
+              />
+              <p className="text-[9px] text-[#666]">
+                Default is the public Piston execution service. You can also specify a private or self-hosted endpoint.
+              </p>
+            </div>
+
+            <div className="flex gap-2 pt-1">
+              <button
+                onClick={handleSaveCompilerEndpoint}
+                className="flex-1 flex items-center justify-center gap-1 py-1.5 bg-sky-600 hover:bg-sky-500 text-white rounded text-[11px] font-semibold transition-colors"
+              >
+                {endpointSaved ? <><span>✓</span> Saved</> : <><Save size={11} /> Save Endpoint</>}
+              </button>
+              <button
+                onClick={handleTestCompiler}
+                disabled={testResult.status === 'testing'}
+                className="px-3 py-1.5 bg-[#3c3c3c] hover:bg-[#4c4c4c] disabled:opacity-50 text-white rounded text-[11px] font-medium transition-colors"
+              >
+                {testResult.status === 'testing' ? 'Testing...' : 'Test Connection'}
+              </button>
+              <button
+                onClick={handleResetCompilerEndpoint}
+                title="Reset to default"
+                className="px-2 py-1.5 bg-[#3c3c3c] hover:bg-[#4c4c4c] text-[#ccc] rounded text-[11px] transition-colors"
+              >
+                <RefreshCw size={11} />
+              </button>
+            </div>
+
+            {testResult.status !== 'idle' && testResult.status !== 'testing' && (
+              <div className={`p-2 rounded border text-[10px] flex items-center gap-1.5 ${
+                testResult.status === 'ok' ? 'bg-emerald-950/40 border-emerald-500/40 text-emerald-300' : 'bg-rose-950/40 border-rose-500/40 text-rose-300'
+              }`}>
+                {testResult.status === 'ok' ? <Check size={12} className="shrink-0" /> : <AlertCircle size={12} className="shrink-0" />}
+                <span>{testResult.msg}</span>
+              </div>
+            )}
+
+            <div className="pt-2 border-t border-[#333]">
+              <span className="text-[#aaa] block text-[11px] font-semibold mb-2">Supported Real Compilers & Engines</span>
+              <div className="grid grid-cols-2 gap-1 text-[10px]">
+                {[
+                  ['C / C++', 'GCC 10.2 / Clang'],
+                  ['Java', 'OpenJDK 15 / 21'],
+                  ['Rust', 'rustc 1.68 / Cargo'],
+                  ['Go', 'Golang 1.16+'],
+                  ['Python', 'Pyodide 3.11 WASM'],
+                  ['C# / .NET', 'Mono / .NET 6.0+'],
+                  ['TypeScript', 'V8 Worker / TS 5.7'],
+                  ['SQLite', 'SQLite 3.53 WASM'],
+                  ['PHP', 'PHP 8.2+'],
+                  ['Ruby', 'Ruby 3.0+'],
+                  ['Kotlin', 'Kotlin 1.8+'],
+                  ['Swift', 'Swift 5.3+'],
+                  ['Dart', 'Dart 2.19+'],
+                  ['Zig', 'Zig 0.10+'],
+                ].map(([lang, note]) => (
+                  <div key={lang} className="p-1.5 bg-[#1e1e1e] border border-[#333] rounded flex flex-col">
+                    <span className="font-semibold text-white">{lang}</span>
+                    <span className="text-[#777] text-[9px]">{note}</span>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
         )}

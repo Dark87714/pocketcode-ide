@@ -4,6 +4,8 @@ import { gitService } from './gitService';
 import { realGitService } from './realGitService';
 import { universalRunnerService } from './universalRunner';
 import { securityService } from './securityService';
+import { sqliteService } from './sqliteService';
+import { compilerService } from './compilerService';
 
 export interface TerminalLine {
   id: string;
@@ -1461,6 +1463,89 @@ Features: Git, AI Copilot, Terminal, Live Sandbox, Multi-Tab
         break;
       }
 
+      case 'php':
+      case 'ruby':
+      case 'csharp':
+      case 'dotnet':
+      case 'kotlin':
+      case 'kotlinc':
+      case 'swift':
+      case 'dart':
+      case 'zig': {
+        const fileTarget = args.find(a => !a.startsWith('-') && a !== 'run' && a !== 'build');
+        if (fileTarget) {
+          const resolved = this.resolvePath(fileTarget);
+          const file = fileSystemService.getFileByPath(resolved) || fileSystemService.getAllFlatFiles().find(f => f.name === fileTarget || f.name.startsWith(fileTarget));
+          if (file) {
+            await universalRunnerService.runFile(file, (line, type) => {
+              const termType = type === 'stderr' ? 'error' : type === 'system' ? 'system' : 'output';
+              onOutput({ id: `line_${Date.now()}_${Math.random()}`, type: termType, content: line });
+            });
+            return;
+          }
+        }
+        onOutput({ id: `line_${Date.now()}`, type: 'info', content: `${cmd} runner: specify a file to compile & run, e.g. '${cmd} main.${cmd === 'dotnet' ? 'cs' : cmd}'` });
+        break;
+      }
+
+      case 'sqlite':
+      case 'sqlite3':
+      case 'sql': {
+        if (args.length > 0) {
+          const queryOrFile = args.join(' ');
+          if (queryOrFile.endsWith('.sql')) {
+            const resolved = this.resolvePath(queryOrFile);
+            const file = fileSystemService.getFileByPath(resolved) || fileSystemService.getAllFlatFiles().find(f => f.name === queryOrFile);
+            if (file) {
+              await universalRunnerService.runFile(file, (line, type) => {
+                const termType = type === 'stderr' ? 'error' : type === 'system' ? 'system' : 'output';
+                onOutput({ id: `line_${Date.now()}_${Math.random()}`, type: termType, content: line });
+              });
+              return;
+            }
+          }
+          // Direct SQL statement execution
+          try {
+            onOutput({ id: `line_${Date.now()}`, type: 'system', content: `⚡ Executing SQLite WASM query...` });
+            const result = await sqliteService.executeQuery(queryOrFile);
+            if (result.error) {
+              onOutput({ id: `line_${Date.now()}`, type: 'error', content: `Error: ${result.error}` });
+            } else if (result.columns.length > 0) {
+              const colWidths = result.columns.map((c, i) => {
+                let max = c.length;
+                result.rows.forEach(r => {
+                  const s = r[i] !== null && r[i] !== undefined ? String(r[i]) : 'NULL';
+                  if (s.length > max) max = s.length;
+                });
+                return Math.min(Math.max(max, 4), 40);
+              });
+              const sep = '+' + colWidths.map(w => '-'.repeat(w + 2)).join('+') + '+';
+              const hdr = '|' + result.columns.map((c, i) => ` ${c.padEnd(colWidths[i])} `).join('|') + '|';
+              onOutput({ id: `line_${Date.now()}_sep1`, type: 'output', content: sep });
+              onOutput({ id: `line_${Date.now()}_hdr`, type: 'output', content: hdr });
+              onOutput({ id: `line_${Date.now()}_sep2`, type: 'output', content: sep });
+              result.rows.forEach((r, idx) => {
+                const rowStr = '|' + r.map((v, i) => {
+                  const s = v !== null && v !== undefined ? String(v) : 'NULL';
+                  const trunc = s.length > colWidths[i] ? s.slice(0, colWidths[i] - 3) + '...' : s;
+                  return ` ${trunc.padEnd(colWidths[i])} `;
+                }).join('|') + '|';
+                onOutput({ id: `line_${Date.now()}_row_${idx}`, type: 'output', content: rowStr });
+              });
+              onOutput({ id: `line_${Date.now()}_sep3`, type: 'output', content: sep });
+              onOutput({ id: `line_${Date.now()}_stats`, type: 'success', content: `${result.rows.length} row(s) in set (${result.executionTimeMs}ms)` });
+            } else {
+              onOutput({ id: `line_${Date.now()}`, type: 'success', content: `Query OK, ${result.rowsAffected || 0} row(s) affected (${result.executionTimeMs}ms)` });
+            }
+          } catch (e: any) {
+            onOutput({ id: `line_${Date.now()}`, type: 'error', content: `SQL Error: ${e.message}` });
+          }
+          return;
+        }
+        onOutput({ id: `line_${Date.now()}`, type: 'info', content: 'SQLite version 3.45.0 (WASM In-Memory). Usage: sqlite3 <file.sql> or sqlite3 "SELECT 1+1;"' });
+        break;
+      }
+
       case 'python':
       case 'python3':
       case 'py': {
@@ -1892,14 +1977,15 @@ Runtime Engine: V8 / WebAssembly In-Browser Isolated Sandbox
 JavaScript (ES2023)    Worker Sandbox   ✅ Full client-side ES modules
 TypeScript 5.x         In-Memory        ✅ Full live transpilation
 HTML5 / CSS3           Live Preview     ✅ Full live Webview / IFrame
-Python 3.x             Pyodide / WASM   ✅ Standard library, math, sys
-SQLite3                WASM Engine      ✅ In-memory SQL query engine
+Python 3.x             Pyodide / WASM   ✅ Standard library, math, sys, micropip
+SQLite3                SQLite3 WASM     ✅ Real in-memory SQL relational engine
 Node.js Stdlib         Mock Sandbox     ⚠️ Emulated path, os, util, process
                                            (Native fs/net/child_process unsupported)
-npm / Packages         Virtual / CDN    ⚠️ CDN ESM Resolution (No binary npm build)
-C / C++                WASM Simulation  ⚠️ Educational compiler simulation
-Rust                   WASM Simulation  ⚠️ Educational compiler simulation
-Java                   WASM Simulation  ⚠️ Educational runner simulation
+npm / Packages         Virtual / CDN    ⚠️ CDN ESM Resolution (esm.sh)
+C / C++                Real Compiler    ✅ GCC 10.2 / Clang C++20 Compiler
+Rust                   Real Compiler    ✅ rustc 1.68 / Cargo Runner
+Java                   Real Compiler    ✅ OpenJDK 15/21 Javac & Runner
+Go / C# / PHP / Ruby   Real Compiler    ✅ Multi-Language Execution Engine
 ------------------------------------------------------------------
 Run 'test:security' for sandbox audit or 'test:perf' for benchmarks.
 ==================================================================`;
