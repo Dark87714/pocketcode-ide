@@ -3,10 +3,11 @@ import {
   Plus, FolderPlus, GitFork, FileArchive, FolderGit2,
   X, Sparkles, Code2, ArrowRight, Trash2, Check,
   Gamepad2, Layers, Terminal, Database, Loader2,
-  Download, Edit2, Copy, Search, FolderUp, RefreshCw
+  Download, Edit2, Copy, Search, FolderUp, RefreshCw, Smartphone
 } from 'lucide-react';
 import { PROJECT_TEMPLATES } from '../../services/templates';
 import { fileSystemService } from '../../services/fileSystem';
+import { apkBuilderService } from '../../services/apkBuilderService';
 import { ProjectMetadata } from '../../types';
 
 interface NewProjectModalProps {
@@ -37,7 +38,24 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [editingProjectId, setEditingProjectId] = useState<string | null>(null);
   const [editingProjectName, setEditingProjectName] = useState('');
+  const [isBuildingAPK, setIsBuildingAPK] = useState(false);
+  const [apkBuildMsg, setApkBuildMsg] = useState<string | null>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
+
+  const handleBuildActiveAPK = async () => {
+    setIsBuildingAPK(true);
+    setApkBuildMsg('Packaging APK...');
+    try {
+      await apkBuilderService.buildProjectAPK((msg) => {
+        setApkBuildMsg(msg);
+      });
+      setTimeout(() => setApkBuildMsg(null), 4000);
+    } catch (e: any) {
+      setApkBuildMsg(`Error: ${e.message}`);
+    } finally {
+      setIsBuildingAPK(false);
+    }
+  };
 
   const refreshProjectsList = async () => {
     const list = await fileSystemService.listProjects();
@@ -419,17 +437,27 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
                 </div>
               )}
 
-              <div className="pt-2 border-t border-[#333333] flex items-center justify-between">
+              <div className="pt-2 border-t border-[#333333] flex flex-wrap items-center justify-between gap-2">
                 <span className="text-[11px] text-[#777777]">
-                  All projects are persistently saved in mobile IndexedDB storage.
+                  {apkBuildMsg || 'All projects are persistently saved in mobile IndexedDB storage.'}
                 </span>
-                <button
-                  onClick={() => fileSystemService.downloadProjectZip()}
-                  className="px-2.5 py-1.5 rounded bg-[#333333] hover:bg-[#444444] text-white text-xs flex items-center gap-1.5 transition-colors"
-                >
-                  <Download size={13} />
-                  <span>Export Active .ZIP</span>
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => fileSystemService.downloadProjectZip()}
+                    className="px-2.5 py-1.5 rounded bg-[#333333] hover:bg-[#444444] text-white text-xs flex items-center gap-1.5 transition-colors"
+                  >
+                    <Download size={13} />
+                    <span>Export .ZIP</span>
+                  </button>
+                  <button
+                    onClick={handleBuildActiveAPK}
+                    disabled={isBuildingAPK}
+                    className="px-2.5 py-1.5 rounded bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-xs flex items-center gap-1.5 font-medium transition-colors"
+                  >
+                    {isBuildingAPK ? <Loader2 size={13} className="animate-spin" /> : <Smartphone size={13} />}
+                    <span>{isBuildingAPK ? 'Building APK...' : 'Build & Download .APK'}</span>
+                  </button>
+                </div>
               </div>
             </div>
           )}
