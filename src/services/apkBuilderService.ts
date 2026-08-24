@@ -1,5 +1,6 @@
 import JSZip from 'jszip';
 import { fileSystemService } from './fileSystem';
+import { apkSignerService } from './apkSignerService';
 
 export class APKBuilderService {
   /**
@@ -107,15 +108,11 @@ export class APKBuilderService {
         }, null, 2);
         zip.file('assets/capacitor.config.json', capConfig);
 
-        onProgress(`[4/5] Aligning Android package structure & debug signature...`, 'system');
-        await new Promise(r => setTimeout(r, 500));
+        onProgress(`[4/5] Computing SHA-256 Merkle tree & applying APK Signature Scheme v2...`, 'system');
+        const signedApkBytes = await apkSignerService.signAPK(zip, (msg) => onProgress(msg, 'output'));
 
         onProgress(`[5/5] Packaging installable Android APK (${cleanName}-v${versionName}-debug.apk)...`, 'output');
-        const apkBlob = await zip.generateAsync({
-          type: 'blob',
-          compression: 'DEFLATE',
-          compressionOptions: { level: 1 }
-        });
+        const apkBlob = new Blob([signedApkBytes], { type: 'application/vnd.android.package-archive' });
 
         const apkFilename = `${cleanName}-v${versionName}-debug.apk`;
         const apkUrl = URL.createObjectURL(apkBlob);
