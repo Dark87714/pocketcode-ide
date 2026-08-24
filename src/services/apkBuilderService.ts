@@ -85,7 +85,8 @@ export class APKBuilderService {
             }
             if (match) {
               manifestBytes.set(newBuf, i);
-              break;
+              // Do NOT break! Replace ALL occurrences (there are multiple, e.g., in permissions)
+              i += oldBuf.length - 1; // Skip the replaced part
             }
           }
           zip.file('AndroidManifest.xml', manifestBytes);
