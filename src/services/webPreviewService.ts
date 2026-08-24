@@ -54,6 +54,15 @@ export class WebPreviewService {
       const cssContent = cssFiles.map(f => this.escapeStyleContent(f.content)).join('\n\n');
       const jsContent = jsFiles.map(f => this.escapeScriptContent(f.content)).join('\n\n');
 
+      const fileListHtml = flatFiles.length > 0
+        ? `<div style="margin-top: 20px; text-align: left; background: #252526; border: 1px solid #3c3c3c; border-radius: 8px; padding: 14px;">
+            <p style="margin: 0 0 8px 0; font-weight: 600; font-size: 13px; color: #9cdcfe;">📁 Files in this Workspace (${flatFiles.length}):</p>
+            <ul style="margin: 0; padding-left: 20px; font-size: 12px; color: #cccccc; font-family: monospace;">
+              ${flatFiles.map(f => `<li>${f.name} <span style="color: #6a9955;">(${f.language || 'text'})</span></li>`).join('')}
+            </ul>
+          </div>`
+        : '';
+
       indexHtml = `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -62,18 +71,73 @@ export class WebPreviewService {
   <title>PocketCode Live Sandbox</title>
   <style>
     body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      padding: 16px;
-      color: #333;
-      background: #fafafa;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+      padding: 24px 16px;
+      color: #e0e0e0;
+      background: #1e1e1e;
+      text-align: center;
+      line-height: 1.5;
+    }
+    .card {
+      max-width: 480px;
+      margin: 0 auto;
+      background: #2d2d2d;
+      border: 1px solid #3c3c3c;
+      border-radius: 12px;
+      padding: 24px;
+      box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+    }
+    h2 {
+      margin: 0 0 10px 0;
+      font-size: 20px;
+      color: #ffffff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+    }
+    p {
+      color: #aaaaaa;
+      font-size: 13px;
+      margin: 0 0 16px 0;
+    }
+    .badge {
+      display: inline-block;
+      background: #0e639c;
+      color: #ffffff;
+      padding: 4px 10px;
+      border-radius: 20px;
+      font-size: 11px;
+      font-weight: bold;
+      margin-bottom: 12px;
+    }
+    .tip {
+      background: #1e293b;
+      border-left: 3px solid #38bdf8;
+      padding: 10px 14px;
+      text-align: left;
+      border-radius: 4px;
+      font-size: 12px;
+      color: #cbd5e1;
+      margin-top: 14px;
     }
     ${cssContent}
   </style>
 </head>
 <body>
-  <div id="root">
-    <h2>🚀 Live App Output</h2>
-    <p>Output from workspace scripts.</p>
+  <div class="card">
+    <span class="badge">🌐 Live Web Sandbox</span>
+    <h2>🚀 Welcome to Live Preview</h2>
+    <p>No <code>index.html</code> was found in your active workspace.</p>
+    
+    <div class="tip">
+      💡 <b>To preview your App:</b><br/>
+      1. Click <b>+</b> in the file explorer to create <b><code>index.html</code></b>.<br/>
+      2. Write your HTML/CSS/JS code.<br/>
+      3. Your app will update here live instantly!
+    </div>
+
+    ${fileListHtml}
   </div>
   <script>
     ${jsContent}
