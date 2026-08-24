@@ -176,8 +176,12 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
 
   const handleSaveRename = async (projectId: string) => {
     if (editingProjectName.trim()) {
-      await fileSystemService.renameProject(projectId, editingProjectName.trim());
+      const cleanName = editingProjectName.trim();
+      await fileSystemService.renameProject(projectId, cleanName);
       await refreshProjectsList();
+      if (projectId === fileSystemService.getCurrentProjectId()) {
+        onProjectCreated(cleanName);
+      }
     }
     setEditingProjectId(null);
     setEditingProjectName('');

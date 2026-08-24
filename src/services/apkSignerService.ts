@@ -213,16 +213,37 @@ async function computeChunkedSha256Digest(sections: Uint8Array[]): Promise<Uint8
   return new Uint8Array(topDigestBuffer);
 }
 
+const KEYSTORE_STORAGE_KEY = 'pocketcode_debug_keystore_pem_v1';
+
 export class APKSignerService {
   private keyPair: forge.pki.rsa.KeyPair | null = null;
   private cert: forge.pki.Certificate | null = null;
 
   /**
-   * Initializes or generates standard Android Debug credentials
+   * Initializes or generates standard Android Debug credentials.
+   * Persisted in localStorage so all APK updates share the EXACT same signature,
+   * completely eliminating INSTALL_FAILED_UPDATE_INCOMPATIBLE signature mismatch errors.
    */
   async ensureKeys(): Promise<{ key: forge.pki.rsa.PrivateKey; cert: forge.pki.Certificate }> {
     if (this.keyPair && this.cert) {
       return { key: this.keyPair.privateKey, cert: this.cert };
+    }
+
+    try {
+      const savedPem = localStorage.getItem(KEYSTORE_STORAGE_KEY);
+      if (savedPem) {
+        const parsed = JSON.parse(savedPem);
+        if (parsed.privateKeyPem && parsed.certPem) {
+          const privateKey = forge.pki.privateKeyFromPem(parsed.privateKeyPem);
+          const cert = forge.pki.certificateFromPem(parsed.certPem);
+          const publicKey = forge.pki.setRsaPublicKey(privateKey.n, privateKey.e);
+          this.keyPair = { privateKey, publicKey };
+          this.cert = cert;
+          return { key: privateKey, cert };
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to load saved keystore, generating persistent one:', e);
     }
 
     this.keyPair = forge.pki.rsa.generateKeyPair({ bits: 2048, e: 0x10001 });
@@ -230,14 +251,12 @@ export class APKSignerService {
     const cert = forge.pki.createCertificate();
     cert.publicKey = this.keyPair.publicKey;
     cert.serialNumber = '01' + forge.util.bytesToHex(forge.random.getBytesSync(8));
-    cert.validity.notBefore = new Date();
-    cert.validity.notBefore.setDate(cert.validity.notBefore.getDate() - 1);
-    cert.validity.notAfter = new Date();
-    cert.validity.notAfter.setFullYear(cert.validity.notAfter.getFullYear() + 30);
+    cert.validity.notBefore = new Date('2020-01-01');
+    cert.validity.notAfter = new Date('2055-01-01');
 
     const attrs = [
       { name: 'commonName', value: 'Android Debug' },
-      { name: 'organizationName', value: 'Android' },
+      { name: 'organizationName', value: 'PocketCode' },
       { name: 'countryName', value: 'US' }
     ];
     cert.setSubject(attrs);
@@ -245,6 +264,13 @@ export class APKSignerService {
     cert.sign(this.keyPair.privateKey, forge.md.sha256.create());
 
     this.cert = cert;
+
+    try {
+      const privateKeyPem = forge.pki.privateKeyToPem(this.keyPair.privateKey);
+      const certPem = forge.pki.certificateToPem(cert);
+      localStorage.setItem(KEYSTORE_STORAGE_KEY, JSON.stringify({ privateKeyPem, certPem }));
+    } catch (e) {}
+
     return { key: this.keyPair.privateKey, cert: this.cert };
   }
 

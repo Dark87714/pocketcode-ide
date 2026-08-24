@@ -342,9 +342,31 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
             )}
 
             <div className="pt-2 border-t border-[#333]">
+              <span className="text-[#aaa] block text-[11px] font-semibold mb-1">Android Native (Kotlin/Gradle) Builder</span>
+              <p className="text-[9px] text-[#777] mb-2">
+                Compiles Kotlin, Java, and Jetpack Compose projects into native APKs using the Gradle Build Daemon & AAPT2.
+              </p>
+              <div className="p-2 bg-[#1e1e1e] border border-[#333] rounded space-y-1 text-[10px]">
+                <div className="flex justify-between text-white">
+                  <span>Build Pipeline:</span>
+                  <span className="text-emerald-400 font-mono">Gradle 8.13 + kotlinc</span>
+                </div>
+                <div className="flex justify-between text-white">
+                  <span>Target Platform:</span>
+                  <span className="text-sky-400 font-mono">Android 14+ (API 34/36)</span>
+                </div>
+                <div className="flex justify-between text-white">
+                  <span>Jetpack Compose:</span>
+                  <span className="text-purple-400 font-mono">Supported (M3 1.7)</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="pt-2 border-t border-[#333]">
               <span className="text-[#aaa] block text-[11px] font-semibold mb-2">Supported Real Compilers & Engines</span>
               <div className="grid grid-cols-2 gap-1 text-[10px]">
                 {[
+                  ['Android (Kotlin)', 'Gradle 8.13 / kotlinc'],
                   ['C / C++', 'GCC 10.2 / Clang'],
                   ['Java', 'OpenJDK 15 / 21'],
                   ['Rust', 'rustc 1.68 / Cargo'],
@@ -355,7 +377,6 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
                   ['SQLite', 'SQLite 3.53 WASM'],
                   ['PHP', 'PHP 8.2+'],
                   ['Ruby', 'Ruby 3.0+'],
-                  ['Kotlin', 'Kotlin 1.8+'],
                   ['Swift', 'Swift 5.3+'],
                   ['Dart', 'Dart 2.19+'],
                   ['Zig', 'Zig 0.10+'],

@@ -9,6 +9,7 @@ const TABS_STORAGE_KEY = 'pocketcode_open_tabs_v3';
 const ACTIVE_TAB_STORAGE_KEY = 'pocketcode_active_tab_v3';
 const PROJECTS_INDEX_KEY = 'pocketcode_projects_index_v3';
 const ACTIVE_PROJECT_ID_KEY = 'pocketcode_active_project_id_v3';
+const ACTIVE_PROJECT_NAME_KEY = 'pocketcode_active_project_name_v3';
 
 export function getLanguageFromFilename(filename: string): string {
   const ext = filename.split('.').pop()?.toLowerCase() || '';
@@ -67,9 +68,16 @@ export class FileSystemService {
   private untitledCounter = 1;
 
   async loadWorkspace(): Promise<FileItem[]> {
-    // 1. Check active project ID
+    // 1. Check active project ID and active project name
     const activeId = localStorage.getItem(ACTIVE_PROJECT_ID_KEY) || 'default_project';
     this.currentProjectId = activeId;
+
+    // Instantly restore saved project name from localStorage cache
+    const savedName = localStorage.getItem(`${ACTIVE_PROJECT_NAME_KEY}_${activeId}`) || localStorage.getItem(ACTIVE_PROJECT_NAME_KEY);
+    if (savedName && savedName.trim()) {
+      this.currentProjectName = savedName.trim();
+    }
+
     const projectStorageKey = `${STORAGE_KEY}_${activeId}`;
 
     // 2. Read from localStorage synchronous cache first for instant 0ms startup
@@ -191,6 +199,17 @@ export class FileSystemService {
     return this.currentProjectName;
   }
 
+  setCurrentProjectName(name: string): void {
+    const clean = name.trim();
+    if (!clean) return;
+    this.currentProjectName = clean;
+    try {
+      localStorage.setItem(`${ACTIVE_PROJECT_NAME_KEY}_${this.currentProjectId}`, clean);
+      localStorage.setItem(ACTIVE_PROJECT_NAME_KEY, clean);
+    } catch (e) {}
+    this.syncProjectsIndex().catch(() => {});
+  }
+
   async listProjects(): Promise<ProjectMetadata[]> {
     try {
       const stored = await get<ProjectMetadata[]>(PROJECTS_INDEX_KEY);
@@ -220,7 +239,11 @@ export class FileSystemService {
       if (existing) {
         existing.lastModified = Date.now();
         existing.fileCount = flatCount;
-        existing.name = this.currentProjectName;
+        if (this.currentProjectName && this.currentProjectName !== 'My Pocket Workspace' && this.currentProjectName !== 'New Project') {
+          existing.name = this.currentProjectName;
+        } else if (existing.name) {
+          this.currentProjectName = existing.name;
+        }
       } else {
         projects.unshift({
           id: this.currentProjectId,
@@ -232,6 +255,8 @@ export class FileSystemService {
         });
       }
       await set(PROJECTS_INDEX_KEY, projects);
+      localStorage.setItem(`${ACTIVE_PROJECT_NAME_KEY}_${this.currentProjectId}`, this.currentProjectName);
+      localStorage.setItem(ACTIVE_PROJECT_NAME_KEY, this.currentProjectName);
     } catch (e) {}
   }
 
@@ -244,9 +269,14 @@ export class FileSystemService {
     initialLanguage: string = 'javascript'
   ): Promise<{ projectId: string; files: FileItem[] }> {
     const projectId = `proj_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
+    const cleanName = name.trim() || 'New Project';
     this.currentProjectId = projectId;
-    this.currentProjectName = name.trim() || 'New Project';
-    localStorage.setItem(ACTIVE_PROJECT_ID_KEY, projectId);
+    this.currentProjectName = cleanName;
+    try {
+      localStorage.setItem(ACTIVE_PROJECT_ID_KEY, projectId);
+      localStorage.setItem(ACTIVE_PROJECT_NAME_KEY, cleanName);
+      localStorage.setItem(`${ACTIVE_PROJECT_NAME_KEY}_${projectId}`, cleanName);
+    } catch (e) {}
 
     if (templateId) {
       const template = PROJECT_TEMPLATES.find(t => t.id === templateId) || PROJECT_TEMPLATES[0];
@@ -296,6 +326,10 @@ export class FileSystemService {
     const proj = projects.find(p => p.id === projectId);
     if (proj) {
       this.currentProjectName = proj.name;
+      try {
+        localStorage.setItem(ACTIVE_PROJECT_NAME_KEY, proj.name);
+        localStorage.setItem(`${ACTIVE_PROJECT_NAME_KEY}_${projectId}`, proj.name);
+      } catch (e) {}
     }
 
     const projectStorageKey = `${STORAGE_KEY}_${projectId}`;
@@ -319,6 +353,10 @@ export class FileSystemService {
 
     if (this.currentProjectId === projectId) {
       this.currentProjectName = cleanName;
+      try {
+        localStorage.setItem(ACTIVE_PROJECT_NAME_KEY, cleanName);
+        localStorage.setItem(`${ACTIVE_PROJECT_NAME_KEY}_${projectId}`, cleanName);
+      } catch (e) {}
     }
 
     const projects = await this.listProjects();
@@ -350,6 +388,12 @@ export class FileSystemService {
     const newProjectId = `proj_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
     this.currentProjectId = newProjectId;
     this.currentProjectName = newName;
+    this.files = sourceFiles;
+    try {
+      localStorage.setItem(ACTIVE_PROJECT_ID_KEY, newProjectId);
+      localStorage.setItem(ACTIVE_PROJECT_NAME_KEY, newName);
+      localStorage.setItem(`${ACTIVE_PROJECT_NAME_KEY}_${newProjectId}`, newName);
+    } catch (e) {}
     this.files = sourceFiles;
     localStorage.setItem(ACTIVE_PROJECT_ID_KEY, newProjectId);
 
@@ -536,6 +580,11 @@ export class FileSystemService {
     try {
       localStorage.setItem(`${BACKUP_STORAGE_KEY}_${this.currentProjectId}`, JSON.stringify(this.files));
       localStorage.setItem(BACKUP_STORAGE_KEY, JSON.stringify(this.files));
+      if (this.currentProjectName) {
+        localStorage.setItem(`${ACTIVE_PROJECT_NAME_KEY}_${this.currentProjectId}`, this.currentProjectName);
+        localStorage.setItem(ACTIVE_PROJECT_NAME_KEY, this.currentProjectName);
+      }
+      localStorage.setItem(ACTIVE_PROJECT_ID_KEY, this.currentProjectId);
     } catch (e) {}
   }
 

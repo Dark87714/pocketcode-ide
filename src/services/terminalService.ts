@@ -7,6 +7,8 @@ import { securityService } from './securityService';
 import { sqliteService } from './sqliteService';
 import { compilerService } from './compilerService';
 import { apkBuilderService } from './apkBuilderService';
+import { nativeAndroidBuildService } from './nativeAndroidBuildService';
+import { projectTypeDetector } from './projectTypeDetector';
 
 export interface TerminalLine {
   id: string;
@@ -1918,7 +1920,7 @@ Requires: micropip`
       }
 
       // -------------------------------------------------------------
-      // ANDROID APK DIRECT BUILD PIPELINE
+      // ANDROID APK DIRECT BUILD PIPELINE (VS Code & Native Parity)
       // -------------------------------------------------------------
       case 'build:apk':
       case 'build-apk':
@@ -1926,22 +1928,26 @@ Requires: micropip`
       case 'apk': {
         const sub = args[0]?.toLowerCase();
         if (!sub || sub === 'build' || sub === 'assemble' || sub === 'generate') {
-          await apkBuilderService.buildProjectAPK((msg, type) => {
-            const termType = type === 'error' ? 'error' : type === 'success' ? 'success' : type === 'system' ? 'system' : 'output';
-            onOutput({ id: `line_${Date.now()}_${Math.random()}`, type: termType, content: msg });
+          await nativeAndroidBuildService.buildUniversalAPK({
+            onProgress: (msg, type) => {
+              const termType = type === 'error' ? 'error' : type === 'success' ? 'success' : type === 'system' ? 'system' : 'output';
+              onOutput({ id: `line_${Date.now()}_${Math.random()}`, type: termType, content: msg });
+            }
           });
         } else if (sub === 'info' || sub === 'version') {
-          const pName = fileSystemService.getCurrentProjectName() || 'my-app';
+          const files = fileSystemService.getAllFlatFiles();
+          const analysis = projectTypeDetector.analyze(files);
+          const pName = fileSystemService.getCurrentProjectName() || analysis.applicationName || 'my-app';
           onOutput({
             id: `line_${Date.now()}`,
             type: 'info',
-            content: `📱 Android APK Builder v1.0\nProject: ${pName}\nTarget Package: com.pocketcode.${pName.toLowerCase().replace(/[^a-z0-9_-]/g, '_')}\nSDK Target: Android 14+ (API 34/36)\nCompiler: AAPT2 + D8 DEX + Zipalign\nUsage: apk build | build:apk | ./gradlew assembleDebug`
+            content: `📱 PocketCode Android Build Engine v2.0 (VS Code Parity)\nProject: ${pName}\nKind: ${analysis.description}\nTarget Package: ${analysis.packageName}\nTarget SDK: Android 14+ (API 34/36)\nBuild Engine: ${analysis.isNativeAndroid ? 'Gradle Daemon + kotlinc + AAPT2' : 'Fast In-Browser APK Packager'}\nCommands: apk build | ./gradlew assembleDebug`
           });
         } else {
           onOutput({
             id: `line_${Date.now()}`,
             type: 'info',
-            content: `Usage: apk build (compiles and downloads .apk directly to your device) | apk info`
+            content: `Usage: apk build (compiles and downloads APK) | apk info`
           });
         }
         break;
@@ -1952,15 +1958,17 @@ Requires: micropip`
       case 'gradle': {
         const task = args.join(' ');
         if (!task || task.includes('assemble') || task.includes('build') || task.includes('apk') || task.includes('package')) {
-          await apkBuilderService.buildProjectAPK((msg, type) => {
-            const termType = type === 'error' ? 'error' : type === 'success' ? 'success' : type === 'system' ? 'system' : 'output';
-            onOutput({ id: `line_${Date.now()}_${Math.random()}`, type: termType, content: msg });
+          await nativeAndroidBuildService.buildUniversalAPK({
+            onProgress: (msg, type) => {
+              const termType = type === 'error' ? 'error' : type === 'success' ? 'success' : type === 'system' ? 'system' : 'output';
+              onOutput({ id: `line_${Date.now()}_${Math.random()}`, type: termType, content: msg });
+            }
           });
         } else {
           onOutput({
             id: `line_${Date.now()}`,
             type: 'info',
-            content: `Gradle 8.13 Daemon. Try: ./gradlew assembleDebug or build:apk`
+            content: `Gradle 8.13 Daemon. Try: ./gradlew assembleDebug or apk build`
           });
         }
         break;

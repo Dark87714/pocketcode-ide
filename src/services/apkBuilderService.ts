@@ -1,6 +1,7 @@
 import JSZip from 'jszip';
 import { fileSystemService } from './fileSystem';
 import { apkSignerService } from './apkSignerService';
+import { webPreviewService } from './webPreviewService';
 
 export class APKBuilderService {
   /**
@@ -54,7 +55,8 @@ export class APKBuilderService {
           }
         }
 
-        // Patch AndroidManifest.xml binary package name so it installs as an independent app (no conflict with PocketCode IDE)
+        // Patch AndroidManifest.xml binary package name so it installs as an independent app
+        // NOTE: We replace com.pocketcode.ide for package/permissions/authorities, but KEEP .MainActivity intact so Android finds the Java class in DEX!
         const manifestFile = zip.file('AndroidManifest.xml');
         if (manifestFile) {
           const manifestBytes = await manifestFile.async('uint8array');
@@ -75,6 +77,14 @@ export class APKBuilderService {
             newBuf[i * 2 + 1] = (code >> 8) & 0xff;
           }
 
+          const mainActivitySuffix = '.MainActivity';
+          const mainActivityBuf = new Uint8Array(mainActivitySuffix.length * 2);
+          for (let i = 0; i < mainActivitySuffix.length; i++) {
+            const code = mainActivitySuffix.charCodeAt(i);
+            mainActivityBuf[i * 2] = code & 0xff;
+            mainActivityBuf[i * 2 + 1] = (code >> 8) & 0xff;
+          }
+
           for (let i = 0; i <= manifestBytes.length - oldBuf.length; i++) {
             let match = true;
             for (let j = 0; j < oldBuf.length; j++) {
@@ -84,57 +94,111 @@ export class APKBuilderService {
               }
             }
             if (match) {
-              manifestBytes.set(newBuf, i);
-              // Do NOT break! Replace ALL occurrences (there are multiple, e.g., in permissions)
-              i += oldBuf.length - 1; // Skip the replaced part
+              // Check if followed by .MainActivity (must NOT replace class name, DEX holds com.pocketcode.ide.MainActivity)
+              let isMainActivity = true;
+              for (let k = 0; k < mainActivityBuf.length; k++) {
+                if (manifestBytes[i + oldBuf.length + k] !== mainActivityBuf[k]) {
+                  isMainActivity = false;
+                  break;
+                }
+              }
+
+              if (!isMainActivity) {
+                manifestBytes.set(newBuf, i);
+              }
+              i += oldBuf.length - 1;
             }
           }
           zip.file('AndroidManifest.xml', manifestBytes);
         }
 
-        onProgress(`[3/5] Injecting your project files into Android Native WebView host...`, 'output');
+        onProgress(`[3/5] Bundling and compiling your real project files for Android WebView...`, 'output');
 
-        // Check if there is an index.html, if not, create a fallback launcher
-        let hasIndexHtml = false;
-
+        // 1. Inject all raw files into assets/public/
         allFiles.forEach(f => {
-          if (!f.isFolder && f.content) {
-            const relPath = f.path.replace(/^\//, '');
+          if (!f.isFolder && f.content !== undefined) {
+            const relPath = f.path.replace(/^\/+/, '');
             zip.file(`assets/public/${relPath}`, f.content);
-            if (relPath.toLowerCase() === 'index.html') {
-              hasIndexHtml = true;
+            // Also write at root level of public if it's an asset or entry file
+            if (f.name === 'index.html' || f.name.endsWith('.html') || f.name.endsWith('.css') || f.name.endsWith('.js') || f.name.endsWith('.png') || f.name.endsWith('.jpg') || f.name.endsWith('.svg')) {
+              zip.file(`assets/public/${f.name}`, f.content);
             }
           }
         });
 
-        if (!hasIndexHtml) {
-          // If project has no index.html (e.g. only main.js or App.jsx), generate a clean runtime envelope
-          const jsFiles = allFiles.filter(f => !f.isFolder && (f.name.endsWith('.js') || f.name.endsWith('.ts') || f.name.endsWith('.html')));
-          const mainScript = jsFiles.find(f => f.name === 'index.js' || f.name === 'main.js' || f.name === 'app.js')?.name || jsFiles[0]?.name || '';
+        // 2. Generate the real, fully-compiled standalone HTML (full screen for mobile device)
+        const bundledAppHtml = webPreviewService.buildPreviewHtml(allFiles, true);
+        zip.file('assets/public/index.html', bundledAppHtml);
 
-          const generatedIndex = `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>${projectName}</title>
-  <style>
-    body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #121212; color: #fff; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; text-align: center; }
-    .card { background: #1e1e1e; padding: 24px; border-radius: 16px; box-shadow: 0 4px 20px rgba(0,0,0,0.5); max-width: 90%; }
-    h1 { color: #38bdf8; margin-top: 0; }
-    p { color: #888; font-size: 14px; line-height: 1.5; }
-  </style>
-</head>
-<body>
-  <div class="card">
-    <h1>🚀 ${projectName}</h1>
-    <p>PocketCode Android App is running smoothly!</p>
-    <div id="app"></div>
-  </div>
-  ${mainScript ? `<script src="${mainScript}"></script>` : ''}
-</body>
-</html>`;
-          zip.file('assets/public/index.html', generatedIndex);
+        // Patch resources.arsc to change App Name (PocketCode IDE -> projectName)
+        const arscFile = zip.file('resources.arsc');
+        if (arscFile) {
+          const arscData = await arscFile.async('uint8array');
+          const oldName = 'PocketCode IDE';
+          const newName = projectName.substring(0, 14); // Max 14 chars to fit exactly in byte slot
+          
+          const oldBuf8 = new Uint8Array(oldName.length);
+          for (let i = 0; i < oldName.length; i++) oldBuf8[i] = oldName.charCodeAt(i);
+          
+          const newBuf8 = new Uint8Array(oldName.length); // Pad with 0s
+          for (let i = 0; i < newName.length; i++) newBuf8[i] = newName.charCodeAt(i);
+
+          for (let i = 0; i <= arscData.length - oldBuf8.length; i++) {
+            let match = true;
+            for (let j = 0; j < oldBuf8.length; j++) {
+              if (arscData[i + j] !== oldBuf8[j]) { match = false; break; }
+            }
+            if (match) {
+              arscData.set(newBuf8, i);
+              i += oldBuf8.length - 1;
+            }
+          }
+          zip.file('resources.arsc', arscData, { compression: 'STORE' });
+        }
+
+        // Generate Custom Icon using Canvas and overwrite PNG icons (DO NOT remove XML files to prevent ResourcesNotFoundException)
+        try {
+          const canvas = document.createElement('canvas');
+          canvas.width = 192; canvas.height = 192;
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+            // Draw vibrant background
+            ctx.fillStyle = '#' + Math.floor(Math.random()*16777215).toString(16).padStart(6, '0');
+            ctx.beginPath(); ctx.arc(96, 96, 96, 0, Math.PI * 2); ctx.fill();
+            // Draw bold project initial
+            ctx.fillStyle = '#ffffff';
+            ctx.font = 'bold 100px sans-serif';
+            ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+            ctx.fillText(projectName.charAt(0).toUpperCase(), 96, 104);
+            
+            const dataUrl = canvas.toDataURL('image/png');
+            const base64Data = dataUrl.split(',')[1];
+            
+            const iconPaths = [
+              'res/mipmap-mdpi-v4/ic_launcher.png',
+              'res/mipmap-hdpi-v4/ic_launcher.png',
+              'res/mipmap-xhdpi-v4/ic_launcher.png',
+              'res/mipmap-xxhdpi-v4/ic_launcher.png',
+              'res/mipmap-xxxhdpi-v4/ic_launcher.png',
+              'res/mipmap-mdpi-v4/ic_launcher_round.png',
+              'res/mipmap-hdpi-v4/ic_launcher_round.png',
+              'res/mipmap-xhdpi-v4/ic_launcher_round.png',
+              'res/mipmap-xxhdpi-v4/ic_launcher_round.png',
+              'res/mipmap-xxxhdpi-v4/ic_launcher_round.png',
+              'res/mipmap-mdpi-v4/ic_launcher_foreground.png',
+              'res/mipmap-hdpi-v4/ic_launcher_foreground.png',
+              'res/mipmap-xhdpi-v4/ic_launcher_foreground.png',
+              'res/mipmap-xxhdpi-v4/ic_launcher_foreground.png',
+              'res/mipmap-xxxhdpi-v4/ic_launcher_foreground.png'
+            ];
+            for (const p of iconPaths) {
+              if (zip.file(p)) {
+                zip.file(p, base64Data, { base64: true });
+              }
+            }
+          }
+        } catch {
+          // Fallback if canvas is not available in non-DOM environment
         }
 
         // Update Capacitor configuration
@@ -142,17 +206,21 @@ export class APKBuilderService {
           appId: packageName,
           appName: projectName,
           webDir: 'public',
-          bundledWebRuntime: false
+          bundledWebRuntime: false,
+          server: {
+            androidScheme: "https",
+            cleartext: true
+          }
         }, null, 2);
         zip.file('assets/capacitor.config.json', capConfig);
 
         onProgress(`[4/5] Computing SHA-256 Merkle tree & applying APK Signature Scheme v2...`, 'system');
         const signedApkBytes = await apkSignerService.signAPK(zip, (msg) => onProgress(msg, 'output'));
 
-        onProgress(`[5/5] Packaging installable Android APK (${cleanName}-v${versionName}-debug.apk)...`, 'output');
+        onProgress(`[5/5] Packaging installable Android APK (${projectName}.apk)...`, 'output');
         const apkBlob = new Blob([signedApkBytes], { type: 'application/vnd.android.package-archive' });
 
-        const apkFilename = `${cleanName}-v${versionName}-debug.apk`;
+        const apkFilename = `${projectName}.apk`;
         const apkUrl = URL.createObjectURL(apkBlob);
 
         // Download directly to phone
