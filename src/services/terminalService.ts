@@ -1510,6 +1510,7 @@ Features: Git, AI Copilot, Terminal, Live Sandbox, Multi-Tab
             content: `Package         Version         Status
 --------------  --------------  ------
 torch (PyTorch) 2.4.0 (WASM)    Installed
+yt-dlp          2024.08 (WASM)  Installed
 numpy           1.26.4 (WASM)   Available
 pandas          2.2.2 (WASM)    Available
 scikit-learn    1.4.2 (WASM)    Available

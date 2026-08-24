@@ -592,8 +592,23 @@ export function App() {
     if (pyFile) {
       setOutputLogs([`[Running] ${pyFile.name} ...`]);
       window.dispatchEvent(new CustomEvent('pocketcode:terminal-run-command', { detail: `python "${pyFile.path}"` }));
-      await universalRunnerService.runFile(pyFile, (line) => {
-        setOutputLogs(prev => [...prev, line]);
+      await universalRunnerService.runFile(pyFile, (line, type) => {
+        if (!line || !line.trim()) {
+          setOutputLogs(prev => [...prev, line]);
+          return;
+        }
+        let prefix = '';
+        if (type === 'stderr') {
+          const isWarning = line.includes('Warning') || line.includes('DeprecationWarning');
+          if (!line.startsWith('❌') && !line.startsWith('🛡️') && !line.startsWith('⚠️')) {
+            prefix = isWarning ? '⚠️ ' : '❌ ';
+          }
+        } else if (type === 'system') {
+          if (!line.startsWith('⚡') && !line.startsWith('🚀') && !line.startsWith('📄') && !line.startsWith('✅') && !line.startsWith('✨')) {
+            prefix = '⚡ ';
+          }
+        }
+        setOutputLogs(prev => [...prev, `${prefix}${line}`]);
       });
     }
   };
@@ -642,7 +657,21 @@ export function App() {
 
     // Stream directly to Output panel
     await universalRunnerService.runFile(activeFile, (line, type) => {
-      const prefix = type === 'stderr' ? '❌ ' : type === 'system' ? '⚡ ' : '';
+      if (!line || !line.trim()) {
+        setOutputLogs(prev => [...prev, line]);
+        return;
+      }
+      let prefix = '';
+      if (type === 'stderr') {
+        const isWarning = line.includes('Warning') || line.includes('DeprecationWarning');
+        if (!line.startsWith('❌') && !line.startsWith('🛡️') && !line.startsWith('⚠️')) {
+          prefix = isWarning ? '⚠️ ' : '❌ ';
+        }
+      } else if (type === 'system') {
+        if (!line.startsWith('⚡') && !line.startsWith('🚀') && !line.startsWith('📄') && !line.startsWith('✅') && !line.startsWith('✨')) {
+          prefix = '⚡ ';
+        }
+      }
       setOutputLogs(prev => [...prev, `${prefix}${line}`]);
     });
   };
