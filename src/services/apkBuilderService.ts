@@ -2,6 +2,7 @@ import JSZip from 'jszip';
 import { fileSystemService } from './fileSystem';
 import { apkSignerService } from './apkSignerService';
 import { webPreviewService } from './webPreviewService';
+import { bundleProjectToHtml, needsBundling } from './inBrowserBundler';
 
 export class APKBuilderService {
   /**
@@ -126,12 +127,17 @@ export class APKBuilderService {
           }
         });
 
-        // 2. Generate the real, fully-compiled standalone HTML (full screen for mobile device) if index.html is missing
-        const hasRootIndex = allFiles.some(f => !f.isFolder && (f.path === 'index.html' || f.path === '/index.html'));
-        if (!hasRootIndex) {
-          const bundledAppHtml = webPreviewService.buildPreviewHtml(allFiles, true);
-          zip.file('assets/public/index.html', bundledAppHtml);
+        // 2. Generate the real, fully-compiled standalone HTML (full screen for mobile device)
+        let bundledAppHtml = '';
+        if (needsBundling(allFiles)) {
+          onProgress(`[3/5] Compiling JSX/TypeScript React modules into standalone bundle...`, 'output');
+          const bundleRes = await bundleProjectToHtml(allFiles, projectName, (m) => onProgress(`[3/5] ${m}`, 'output'));
+          bundledAppHtml = bundleRes.html;
+        } else {
+          bundledAppHtml = webPreviewService.buildPreviewHtml(allFiles, true);
         }
+
+        zip.file('assets/public/index.html', bundledAppHtml);
 
         // Patch resources.arsc to change App Name (PocketCode IDE -> projectName)
         const arscFile = zip.file('resources.arsc');

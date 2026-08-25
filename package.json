@@ -22,6 +22,7 @@
     "canvas-confetti": "^1.9.4",
     "clsx": "^2.1.1",
     "dompurify": "^3.4.14",
+    "esbuild-wasm": "^0.28.2",
     "firebase": "^10.14.1",
     "highlight.js": "^11.12.0",
     "idb-keyval": "^6.2.1",
