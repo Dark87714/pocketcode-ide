@@ -27,7 +27,7 @@
 - **Desktop-Grade Code Editor**: Powered by Monaco Editor with syntax highlighting, auto-completion, error linting, code formatting, and multiple tabs.
 - **Ultra-Fast Cold Start**: Instant 0ms cache hydration and optimized code-splitting.
 - **VS Code-Grade Project Workspace Hub**: Isolated per-project IndexedDB persistence, workspace switching, renaming, duplicating, and `.zip` export/import.
-- **Direct Project Terminal**: Interactive terminal with real-time file tree syncing, project runner (`run`, `preview`, `code <file>`), and package management.
+- **Direct Project Terminal**: Interactive terminal with real-time file tree syncing, project runner (`run`, `preview`, `code <file>`), and package management. See [COMMANDS.md](COMMANDS.md) for full shell command documentation.
 - **Compact & Adaptive Mobile Header**: Refined top bar with "More Actions" overflow menu for formatting, search, and split-editor on any screen size.
 - **Custom Mobile Keybar**: Rapid access to programming symbols (`{`, `}`, `[`, `]`, `(`, `)`, `;`, `=>`, `"`, `'`, tabs, undo/redo) designed specifically for touch devices.
 - **Universal Compose & Android XML Transpiler**: Transpiles Jetpack Compose Kotlin code and Android XML layouts into responsive Material 3 views with on-device APK packaging and full Android Studio / Gradle project export.
@@ -38,6 +38,7 @@
 - **Extensions & Themes**: Support for 12+ customized themes (One Dark, Tokyo Night, Dracula, etc.), snippet packs, and developer tools.
 - **Integrated File System & Git**: Full file explorer, project templates, search & replace, and real isomorphic-git source control with durable stashing.
 - **Native Android Integration**: Built using Capacitor for full on-device hardware acceleration and responsive mobile UI.
+- **Documentation**: Detailed reference manuals available in [ARCHITECTURE.md](ARCHITECTURE.md), [COMMANDS.md](COMMANDS.md), and [RUNTIME-COMPATIBILITY.md](RUNTIME-COMPATIBILITY.md).
 
 ---
 
