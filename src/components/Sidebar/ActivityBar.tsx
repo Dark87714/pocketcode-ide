@@ -58,7 +58,7 @@ export const ActivityBar: React.FC<ActivityBarProps> = ({
 
   // Desktop / Tablet side activity bar
   return (
-    <aside className="w-12 bg-[#333333] border-r border-[#252526] flex flex-col items-center justify-between py-2 select-none z-20 shrink-0">
+    <aside className="w-12 bg-[#181818] border-r border-[#252526] flex flex-col items-center justify-between py-2 select-none z-20 shrink-0">
       <div className="flex flex-col items-center gap-1 w-full">
         {navItems.filter(i => i.id !== 'settings').map((item) => {
           const isActive = isSidebarOpen && activeTab === item.id;
@@ -69,7 +69,7 @@ export const ActivityBar: React.FC<ActivityBarProps> = ({
               className={`w-10 h-10 rounded flex items-center justify-center relative transition-colors ${
                 isActive
                   ? 'text-white bg-[#252526] border-l-2 border-l-[#007acc]'
-                  : 'text-[#858585] hover:text-white hover:bg-[#3c3c3c]'
+                  : 'text-[#858585] hover:text-[#cccccc] hover:bg-[#252526]'
               }`}
               title={item.label}
             >
@@ -85,7 +85,7 @@ export const ActivityBar: React.FC<ActivityBarProps> = ({
           className={`w-10 h-10 rounded flex items-center justify-center relative transition-colors ${
             isSidebarOpen && activeTab === 'settings'
               ? 'text-white bg-[#252526] border-l-2 border-l-[#007acc]'
-              : 'text-[#858585] hover:text-white hover:bg-[#3c3c3c]'
+              : 'text-[#858585] hover:text-[#cccccc] hover:bg-[#252526]'
           }`}
           title="Settings"
         >

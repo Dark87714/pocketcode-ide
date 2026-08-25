@@ -265,9 +265,17 @@ export function App() {
       if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'p') {
         e.preventDefault();
         setIsCommandPaletteOpen(prev => !prev);
+      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setIsCommandPaletteOpen(prev => !prev);
       } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'p') {
         e.preventDefault();
         setIsQuickOpenOpen(prev => !prev);
+      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'w') {
+        e.preventDefault();
+        if (activeTabId) {
+          closeTab(activeTabId, { stopPropagation: () => {} } as any);
+        }
       } else if (e.key === 'F5') {
         e.preventDefault();
         handleStartDebugging();
@@ -1027,7 +1035,27 @@ export function App() {
                 />
 
                 {/* Breadcrumbs */}
-                {activeFile && <Breadcrumbs filePath={activeFile.path} />}
+                {activeFile && (
+                  <Breadcrumbs 
+                    filePath={activeFile.path} 
+                    onNavigatePath={(path) => {
+                      if (!path) {
+                        setActiveSidebarTab('explorer');
+                        setIsSidebarOpen(true);
+                      } else {
+                        const found = fileSystemService.getFileByPath(path);
+                        if (found) {
+                          if (found.isFolder) {
+                            setActiveSidebarTab('explorer');
+                            setIsSidebarOpen(true);
+                          } else {
+                            openFile(found);
+                          }
+                        }
+                      }
+                    }}
+                  />
+                )}
 
                 {/* Code Editor / Media Viewer / Welcome View */}
                 <div className="flex-1 overflow-hidden relative">

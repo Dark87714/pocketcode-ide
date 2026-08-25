@@ -1,7 +1,7 @@
-import React from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { 
   Terminal as TermIcon, AlertCircle, ListOrdered, Bug, 
-  ChevronUp, ChevronDown, X, Maximize2, Minimize2 
+  ChevronUp, ChevronDown, X, Maximize2, Minimize2, GripHorizontal 
 } from 'lucide-react';
 import { ActiveBottomTab, DiagnosticProblem } from '../../types';
 import { TerminalPanel } from './TerminalPanel';
@@ -33,17 +33,95 @@ export const BottomDrawer: React.FC<BottomDrawerProps> = ({
   onClearLogs,
   onJumpToLine
 }) => {
+  const [height, setHeight] = useState<number>(() => {
+    const saved = localStorage.getItem('pocketcode_bottom_height');
+    return saved ? Math.max(140, Math.min(window.innerHeight * 0.85, parseInt(saved, 10))) : 240;
+  });
+  const isDraggingRef = useRef(false);
+  const startYRef = useRef(0);
+  const startHeightRef = useRef(height);
+
+  const handleStartResize = (clientY: number) => {
+    isDraggingRef.current = true;
+    startYRef.current = clientY;
+    startHeightRef.current = height;
+    document.body.style.cursor = 'row-resize';
+    document.body.style.userSelect = 'none';
+  };
+
+  const handleMouseDown = (e: React.MouseEvent) => {
+    e.preventDefault();
+    handleStartResize(e.clientY);
+  };
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    if (e.touches.length === 1) {
+      handleStartResize(e.touches[0].clientY);
+    }
+  };
+
+  const handleResizeMove = useCallback((clientY: number) => {
+    if (!isDraggingRef.current) return;
+    const delta = startYRef.current - clientY;
+    const newHeight = Math.max(120, Math.min(window.innerHeight * 0.85, startHeightRef.current + delta));
+    setHeight(newHeight);
+  }, []);
+
+  const handleResizeEnd = useCallback(() => {
+    if (isDraggingRef.current) {
+      isDraggingRef.current = false;
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      localStorage.setItem('pocketcode_bottom_height', height.toString());
+      window.dispatchEvent(new Event('resize'));
+    }
+  }, [height]);
+
+  useEffect(() => {
+    const onMouseMove = (e: MouseEvent) => handleResizeMove(e.clientY);
+    const onMouseUp = () => handleResizeEnd();
+    const onTouchMove = (e: TouchEvent) => {
+      if (e.touches.length === 1) handleResizeMove(e.touches[0].clientY);
+    };
+    const onTouchEnd = () => handleResizeEnd();
+
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+    window.addEventListener('touchmove', onTouchMove);
+    window.addEventListener('touchend', onTouchEnd);
+
+    return () => {
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+      window.removeEventListener('touchmove', onTouchMove);
+      window.removeEventListener('touchend', onTouchEnd);
+    };
+  }, [handleResizeMove, handleResizeEnd]);
+
   if (!isOpen) return null;
 
   const errorCount = problems.filter((p) => p.severity === 'error').length;
   const warningCount = problems.filter((p) => p.severity === 'warning').length;
 
+  const drawerHeight = isExpanded ? '75vh' : `${height}px`;
+
   return (
     <div
-      className={`w-full bg-[#181818] border-t border-[#333333] flex flex-col z-20 transition-all duration-200 shadow-2xl ${
-        isExpanded ? 'h-[75vh]' : 'h-[34vh] min-h-[190px]'
-      }`}
+      style={{ height: drawerHeight }}
+      className="w-full bg-[#181818] border-t border-[#333333] flex flex-col z-20 transition-height duration-75 shadow-2xl relative select-none"
     >
+      {/* Drag Resize Handle Top Border */}
+      {!isExpanded && (
+        <div
+          onMouseDown={handleMouseDown}
+          onTouchStart={handleTouchStart}
+          className="absolute -top-1 left-0 right-0 h-2 cursor-row-resize z-30 hover:bg-[#007acc]/40 transition-colors flex items-center justify-center"
+          title="Drag to resize panel"
+        >
+          <div className="w-8 h-1 bg-[#444444] rounded-full opacity-60 hover:opacity-100" />
+        </div>
+      )}
+
       {/* Drawer Header Tabs */}
       <div className="flex items-center justify-between px-2 bg-[#252526] border-b border-[#333333] h-8 select-none shrink-0">
         <div className="flex items-center h-full gap-1 overflow-x-auto no-scrollbar">

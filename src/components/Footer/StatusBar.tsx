@@ -3,22 +3,22 @@ import { GitFork, AlertCircle, CheckCircle2, Code2, Globe, Sparkles, X, BookOpen
 import { DiagnosticProblem } from '../../types';
 
 export const ALL_LANGUAGES = [
-  { id: 'python', name: 'Python', ext: '.py', icon: '🐍' },
-  { id: 'javascript', name: 'JavaScript', ext: '.js', icon: '🟨' },
-  { id: 'typescript', name: 'TypeScript', ext: '.ts', icon: '🔷' },
-  { id: 'cpp', name: 'C++', ext: '.cpp', icon: '⚡' },
-  { id: 'c', name: 'C', ext: '.c', icon: '⚙️' },
-  { id: 'rust', name: 'Rust', ext: '.rs', icon: '🦀' },
-  { id: 'sql', name: 'SQL', ext: '.sql', icon: '📊' },
-  { id: 'go', name: 'Go (Golang)', ext: '.go', icon: '🐹' },
-  { id: 'java', name: 'Java', ext: '.java', icon: '☕' },
-  { id: 'html', name: 'HTML5', ext: '.html', icon: '🌐' },
-  { id: 'css', name: 'CSS3', ext: '.css', icon: '🎨' },
-  { id: 'json', name: 'JSON', ext: '.json', icon: '📋' },
-  { id: 'markdown', name: 'Markdown', ext: '.md', icon: '📝' },
-  { id: 'shell', name: 'Shell / Bash', ext: '.sh', icon: '💻' },
-  { id: 'yaml', name: 'YAML', ext: '.yaml', icon: '⚙️' },
-  { id: 'xml', name: 'XML', ext: '.xml', icon: '📄' }
+  { id: 'python', name: 'Python', ext: '.py' },
+  { id: 'javascript', name: 'JavaScript', ext: '.js' },
+  { id: 'typescript', name: 'TypeScript', ext: '.ts' },
+  { id: 'cpp', name: 'C++', ext: '.cpp' },
+  { id: 'c', name: 'C', ext: '.c' },
+  { id: 'rust', name: 'Rust', ext: '.rs' },
+  { id: 'sql', name: 'SQL', ext: '.sql' },
+  { id: 'go', name: 'Go', ext: '.go' },
+  { id: 'java', name: 'Java', ext: '.java' },
+  { id: 'html', name: 'HTML5', ext: '.html' },
+  { id: 'css', name: 'CSS3', ext: '.css' },
+  { id: 'json', name: 'JSON', ext: '.json' },
+  { id: 'markdown', name: 'Markdown', ext: '.md' },
+  { id: 'shell', name: 'Shell / Bash', ext: '.sh' },
+  { id: 'yaml', name: 'YAML', ext: '.yaml' },
+  { id: 'xml', name: 'XML', ext: '.xml' }
 ];
 
 interface StatusBarProps {
@@ -50,7 +50,7 @@ export const StatusBar: React.FC<StatusBarProps> = ({
 
   const activeLangObj = ALL_LANGUAGES.find(
     l => l.id.toLowerCase() === currentLanguage.toLowerCase() || l.name.toLowerCase() === currentLanguage.toLowerCase()
-  ) || { name: currentLanguage, icon: '📄' };
+  ) || { name: currentLanguage, ext: '' };
 
   const filteredLanguages = ALL_LANGUAGES.filter(
     l => l.name.toLowerCase().includes(search.toLowerCase()) || l.id.toLowerCase().includes(search.toLowerCase())
@@ -58,57 +58,56 @@ export const StatusBar: React.FC<StatusBarProps> = ({
 
   return (
     <>
-      <footer className="h-6 bg-[#007acc] text-white flex items-center justify-between px-2 text-[11px] select-none shrink-0 z-20 font-sans shadow-inner">
+      <footer className="h-6 bg-[#181818] text-[#cccccc] border-t border-[#252526] flex items-center justify-between px-2.5 text-[11px] select-none shrink-0 z-20 font-sans">
         {/* Left Status Area */}
         <div className="flex items-center gap-3">
           {/* Git branch */}
-          <div className="flex items-center gap-1 hover:bg-white/20 px-1.5 py-0.5 rounded cursor-pointer transition-colors">
-            <GitFork size={11} />
-            <span className="font-mono">{branch}</span>
+          <div className="flex items-center gap-1 hover:bg-[#2a2d2e] text-[#cccccc] hover:text-white px-1.5 py-0.5 rounded cursor-pointer transition-colors">
+            <GitFork size={11} className="text-[#858585]" />
+            <span className="font-mono text-[11px]">{branch}</span>
           </div>
 
           {/* Problems Status */}
           <div 
             onClick={onOpenTerminal}
-            className="flex items-center gap-1.5 hover:bg-white/20 px-1.5 py-0.5 rounded cursor-pointer transition-colors"
+            className="flex items-center gap-1.5 hover:bg-[#2a2d2e] px-1.5 py-0.5 rounded cursor-pointer transition-colors"
           >
             {errorCount > 0 ? (
-              <span className="flex items-center gap-0.5 text-rose-200 font-bold">
+              <span className="flex items-center gap-0.5 text-rose-400 font-medium">
                 <AlertCircle size={11} />
                 <span>{errorCount}</span>
               </span>
             ) : (
-              <span className="flex items-center gap-0.5 opacity-90">
+              <span className="flex items-center gap-0.5 text-[#858585]">
                 <CheckCircle2 size={11} />
                 <span>0</span>
               </span>
             )}
             {warningCount > 0 && (
-              <span className="text-amber-200">
-                ⚠ {warningCount}
+              <span className="text-amber-400 font-medium">
+                {warningCount}
               </span>
             )}
           </div>
         </div>
 
         {/* Right Status Area */}
-        <div className="flex items-center gap-2.5">
+        <div className="flex items-center gap-3 text-[#858585]">
           {/* Cursor info */}
-          <span className="hidden sm:inline opacity-90">
+          <span className="hidden sm:inline hover:text-[#cccccc] transition-colors">
             Ln {cursorPosition.line}, Col {cursorPosition.col}
           </span>
 
           {/* Spaces & Encoding */}
-          <span className="hidden md:inline opacity-90">Spaces: 2</span>
-          <span className="hidden md:inline opacity-90">UTF-8</span>
+          <span className="hidden md:inline hover:text-[#cccccc] transition-colors">Spaces: 2</span>
+          <span className="hidden md:inline hover:text-[#cccccc] transition-colors">UTF-8</span>
 
           {/* Language Mode Selector Button */}
           <button
             onClick={() => setIsLangModalOpen(true)}
-            className="flex items-center gap-1 font-semibold hover:bg-white/20 px-1.5 py-0.5 rounded transition-colors active:scale-95"
+            className="flex items-center gap-1 text-[#cccccc] hover:text-white hover:bg-[#2a2d2e] px-1.5 py-0.5 rounded transition-colors"
             title="Change Language Mode"
           >
-            <span>{activeLangObj.icon}</span>
             <span>{activeLangObj.name}</span>
           </button>
 
@@ -116,10 +115,10 @@ export const StatusBar: React.FC<StatusBarProps> = ({
           {currentLanguage === 'markdown' && onToggleMarkdownPreview && (
             <button
               onClick={onToggleMarkdownPreview}
-              className={`flex items-center gap-1 px-1.5 py-0.5 rounded transition-colors font-semibold ${
-                isMarkdownPreviewOpen ? 'bg-white/30 text-white' : 'hover:bg-white/20'
+              className={`flex items-center gap-1 px-1.5 py-0.5 rounded transition-colors ${
+                isMarkdownPreviewOpen ? 'bg-[#007acc] text-white' : 'hover:bg-[#2a2d2e] hover:text-white'
               }`}
-              title="Toggle Markdown Preview (Ctrl+Shift+M)"
+              title="Toggle Markdown Preview"
             >
               <BookOpen size={11} />
               <span className="hidden sm:inline">Preview</span>
@@ -133,15 +132,15 @@ export const StatusBar: React.FC<StatusBarProps> = ({
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-start justify-center pt-12 sm:pt-20 p-3 animate-fade-in">
           <div className="w-full max-w-sm bg-[#252526] border border-[#3c3c3c] rounded-xl shadow-2xl overflow-hidden flex flex-col max-h-[70vh]">
             <div className="p-3 bg-[#1e1e1e] border-b border-[#333333] flex items-center justify-between">
-              <div className="flex items-center gap-1.5 font-bold text-white text-xs">
-                <Code2 size={15} className="text-sky-400" />
+              <div className="flex items-center gap-1.5 font-semibold text-white text-xs">
+                <Code2 size={14} className="text-sky-400" />
                 <span>SELECT LANGUAGE MODE</span>
               </div>
               <button
                 onClick={() => setIsLangModalOpen(false)}
                 className="p-1 rounded text-[#858585] hover:text-white"
               >
-                <X size={15} />
+                <X size={14} />
               </button>
             </div>
 
@@ -166,10 +165,7 @@ export const StatusBar: React.FC<StatusBarProps> = ({
                   }}
                   className="w-full flex items-center justify-between px-3 py-2 rounded-md text-left hover:bg-[#007acc] hover:text-white text-[#cccccc] transition-colors group"
                 >
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm">{l.icon}</span>
-                    <span className="font-semibold text-white group-hover:text-white">{l.name}</span>
-                  </div>
+                  <span className="font-medium text-white group-hover:text-white">{l.name}</span>
                   <span className="font-mono text-[10px] text-[#858585] group-hover:text-white">
                     {l.ext}
                   </span>

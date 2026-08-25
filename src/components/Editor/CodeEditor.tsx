@@ -447,8 +447,8 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({
         />
       </div>
 
-      {/* Mobile Touch Quick Keypad (Phase 71) */}
-      <div className="h-9 bg-[#252526] border-t border-[#333333] flex items-center px-1 gap-1 overflow-x-auto no-scrollbar shrink-0 select-none z-10">
+      {/* Mobile Touch Quick Keypad (Visible on mobile screens) */}
+      <div className="h-9 bg-[#252526] border-t border-[#333333] flex sm:hidden items-center px-1 gap-1 overflow-x-auto no-scrollbar shrink-0 select-none z-10">
         {QUICK_KEYS.map((k) => (
           <button
             key={k}

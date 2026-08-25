@@ -73,7 +73,7 @@ export const TopBar: React.FC<TopBarProps> = ({
   }, [isMoreMenuOpen]);
 
   return (
-    <header className="safe-top bg-[#333333] border-b border-[#252526] w-full shrink-0 z-30 select-none relative">
+    <header className="safe-top bg-[#181818] border-b border-[#252526] w-full shrink-0 z-30 select-none relative">
       {/* Inner Header Row with guaranteed vertical height */}
       <div className="h-10 sm:h-11 px-1.5 sm:px-3 flex items-center justify-between gap-1 sm:gap-2 w-full max-w-full">
         {/* Left: Sidebar Toggle, Workspace Pill & Optional Desktop Tools */}
@@ -82,7 +82,7 @@ export const TopBar: React.FC<TopBarProps> = ({
           <button
             onClick={onToggleSidebar}
             className={`p-1.5 rounded transition-colors shrink-0 ${
-              isSidebarOpen ? 'bg-[#007acc] text-white' : 'text-[#cccccc] hover:bg-[#3c3c3c] active:bg-[#007acc]'
+              isSidebarOpen ? 'bg-[#007acc] text-white' : 'text-[#cccccc] hover:bg-[#252526] active:bg-[#007acc]'
             }`}
             title="Toggle Sidebar"
             aria-label="Toggle Sidebar"
