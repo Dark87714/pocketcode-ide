@@ -120,16 +120,21 @@ export class SecurityService {
       const parsed = new URL(url);
       const hostname = parsed.hostname.toLowerCase();
 
-      // Block SSRF to internal / private addresses
+      // Block SSRF to internal / private addresses (IPv4 RFC1918, Link-Local, IPv6 ULA fc00::/7, Link-Local fe80::/10)
       const isPrivateIp = 
         hostname === 'localhost' ||
         hostname === '127.0.0.1' ||
         hostname === '0.0.0.0' ||
         hostname === '::1' ||
+        hostname === '::' ||
         hostname === '169.254.169.254' ||
         /^10\.\d+\.\d+\.\d+$/.test(hostname) ||
         /^192\.168\.\d+\.\d+$/.test(hostname) ||
-        /^172\.(1[6-9]|2\d|3[01])\.\d+\.\d+$/.test(hostname);
+        /^172\.(1[6-9]|2\d|3[01])\.\d+\.\d+$/.test(hostname) ||
+        /^169\.254\.\d+\.\d+$/.test(hostname) ||
+        /^f[cd][0-9a-f]{2}:/i.test(hostname) || // IPv6 Unique Local Address (ULA) range fc00::/7
+        /^fe80:/i.test(hostname) ||             // IPv6 Link-Local range fe80::/10
+        /^::ffff:/i.test(hostname);             // IPv4-mapped IPv6
 
       if (isPrivateIp && this.isStrictMode) {
         const threat: SecurityThreat = {
@@ -176,8 +181,8 @@ export class SecurityService {
 
     const detected: string[] = [];
 
-    // 1. Path Traversal check
-    if (/(\.\.[\/\\]){2,}/.test(payload) || /[\/\\]etc[\/\\](passwd|shadow)/i.test(payload)) {
+    // 1. Path Traversal check (single or multi-level traversal)
+    if (/(\.\.[\/\\])/.test(payload) || /[\/\\]etc[\/\\](passwd|shadow)/i.test(payload)) {
       detected.push('Path Traversal (directory escape attempt)');
       this.recordThreat({
         id: `threat_${Date.now()}_pt`,
@@ -191,8 +196,8 @@ export class SecurityService {
       });
     }
 
-    // 2. Severe Command Injection patterns
-    if (/;\s*(rm\s+-rf\s+\/|nc\s+-e|bash\s+-i|mkfifo|powershell\s+-enc)/i.test(payload)) {
+    // 2. Severe Command Injection patterns (semicolon, AND, OR pipelines)
+    if (/(;|&&|\|\|?)\s*(rm\s+-rf|nc\s+-e|bash\s+-i|mkfifo|powershell\s+-enc|curl\s+.*\|\s*sh|wget\s+.*\|\s*sh)/i.test(payload) || />&\s*\/dev\/tcp/i.test(payload)) {
       detected.push('Remote Shell / Destructive Command Injection');
       this.recordThreat({
         id: `threat_${Date.now()}_ci`,
@@ -219,6 +224,131 @@ export class SecurityService {
         action: 'SANITIZED',
         description: 'Prototype modification attempt intercepted by runtime sandbox'
       });
+    }
+
+    // 4. Obfuscated / Dynamically Evaluated Code
+    if (/eval\s*\(\s*(String\.fromCharCode|atob|unescape)/i.test(payload) || /String\.fromCharCode/i.test(payload) && /eval\s*\(/i.test(payload)) {
+      detected.push('Obfuscated Code / Dynamic Eval execution attempt');
+      this.recordThreat({
+        id: `threat_${Date.now()}_obf`,
+        type: 'XSS',
+        severity: 'high',
+        source,
+        payload: payload.slice(0, 100),
+        timestamp: new Date().toLocaleTimeString(),
+        action: 'BLOCKED',
+        description: 'Obfuscated character code payload intercepted'
+      });
+    }
+
+    // 5. Dangerous URI Schemes
+    if (/javascript:|data:text\/html|vbscript:/i.test(payload)) {
+      detected.push('Dangerous URI Scheme (javascript:/data:)');
+      this.recordThreat({
+        id: `threat_${Date.now()}_uri`,
+        type: 'XSS',
+        severity: 'critical',
+        source,
+        payload: payload.slice(0, 100),
+        timestamp: new Date().toLocaleTimeString(),
+        action: 'BLOCKED',
+        description: 'Malicious URI scheme payload intercepted'
+      });
+    }
+
+    // 6. SQL Injection Detection
+    if (/(OR\s+['"]?1['"]?\s*=\s*['"]?1|UNION\s+SELECT|DROP\s+TABLE|--\s*$)/i.test(payload)) {
+      detected.push('SQL Injection pattern detected');
+      this.recordThreat({
+        id: `threat_${Date.now()}_sqli`,
+        type: 'SQLi',
+        severity: 'high',
+        source,
+        payload: payload.slice(0, 100),
+        timestamp: new Date().toLocaleTimeString(),
+        action: 'BLOCKED',
+        description: 'SQL injection signature intercepted'
+      });
+    }
+
+    // 7. Worker Scope Lockdown (importScripts)
+    if (/importScripts\s*\(/i.test(payload)) {
+      detected.push('Worker importScripts blocked');
+      this.recordThreat({
+        id: `threat_${Date.now()}_wk`,
+        type: 'XSS',
+        severity: 'medium',
+        source,
+        payload: payload.slice(0, 100),
+        timestamp: new Date().toLocaleTimeString(),
+        action: 'BLOCKED',
+        description: 'Web Worker external script import intercepted'
+      });
+    }
+
+    // 8. Memory Bombing & Infinite Allocation Loops
+    if (/while\s*\(\s*(true|1)\s*\)\s*\{[^}]*(Array|push|new)/i.test(payload) || /for\s*\(\s*;\s*;\s*\)\s*\{[^}]*(Array|push|new)/i.test(payload)) {
+      detected.push('Memory Bombing / Infinite Allocation Loop');
+      this.recordThreat({
+        id: `threat_${Date.now()}_mem`,
+        type: 'COMMAND_INJECTION',
+        severity: 'high',
+        source,
+        payload: payload.slice(0, 100),
+        timestamp: new Date().toLocaleTimeString(),
+        action: 'BLOCKED',
+        description: 'Memory explosion allocation loop intercepted'
+      });
+    }
+
+    // 9. Constructor Traversal & Unbound Function Escape
+    if (/\.constructor\s*\(\s*['"]return\s+/i.test(payload) || /Function\s*\(\s*['"]return\s+/i.test(payload)) {
+      detected.push('Constructor Traversal / Unbound Function Escape');
+      this.recordThreat({
+        id: `threat_${Date.now()}_ctor`,
+        type: 'PROTOTYPE_POLLUTION',
+        severity: 'high',
+        source,
+        payload: payload.slice(0, 100),
+        timestamp: new Date().toLocaleTimeString(),
+        action: 'BLOCKED',
+        description: 'Constructor navigation sandbox escape attempt intercepted'
+      });
+    }
+
+    // 10. String Memory Bombing
+    if (/\.repeat\s*\(\s*\d{6,}\s*\)/i.test(payload)) {
+      detected.push('String Memory Bombing attempt');
+      this.recordThreat({
+        id: `threat_${Date.now()}_str`,
+        type: 'COMMAND_INJECTION',
+        severity: 'medium',
+        source,
+        payload: payload.slice(0, 100),
+        timestamp: new Date().toLocaleTimeString(),
+        action: 'BLOCKED',
+        description: 'Excessive string repetition allocation intercepted'
+      });
+    }
+
+    // 11. Global Shadow Escape (new Function("return window"))
+    if (/new\s+Function\s*\(\s*['"]return\s+(window|globalThis|this|process|parent)['"]\s*\)/i.test(payload)) {
+      detected.push('Global Shadow Escape attempt');
+      this.recordThreat({
+        id: `threat_${Date.now()}_shd`,
+        type: 'PROTOTYPE_POLLUTION',
+        severity: 'high',
+        source,
+        payload: payload.slice(0, 100),
+        timestamp: new Date().toLocaleTimeString(),
+        action: 'BLOCKED',
+        description: 'Dynamic global object extraction intercepted'
+      });
+    }
+
+    // 12. SSRF check in payload strings
+    if (/http:\/\/(169\.254\.169\.254|localhost|127\.0\.0\.1|0\.0\.0\.0)/i.test(payload)) {
+      detected.push('SSRF URL in code payload');
     }
 
     return { safe: detected.length === 0, threats: detected };

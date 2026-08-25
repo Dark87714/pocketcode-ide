@@ -118,21 +118,20 @@ export class APKBuilderService {
 
         onProgress(`[3/5] Bundling and compiling your real project files for Android WebView...`, 'output');
 
-        // 1. Inject all raw files into assets/public/
+        // 1. Inject all raw files into assets/public/ preserving full directory hierarchy (prevents collision)
         allFiles.forEach(f => {
           if (!f.isFolder && f.content !== undefined) {
             const relPath = f.path.replace(/^\/+/, '');
             zip.file(`assets/public/${relPath}`, f.content);
-            // Also write at root level of public if it's an asset or entry file
-            if (f.name === 'index.html' || f.name.endsWith('.html') || f.name.endsWith('.css') || f.name.endsWith('.js') || f.name.endsWith('.png') || f.name.endsWith('.jpg') || f.name.endsWith('.svg')) {
-              zip.file(`assets/public/${f.name}`, f.content);
-            }
           }
         });
 
-        // 2. Generate the real, fully-compiled standalone HTML (full screen for mobile device)
-        const bundledAppHtml = webPreviewService.buildPreviewHtml(allFiles, true);
-        zip.file('assets/public/index.html', bundledAppHtml);
+        // 2. Generate the real, fully-compiled standalone HTML (full screen for mobile device) if index.html is missing
+        const hasRootIndex = allFiles.some(f => !f.isFolder && (f.path === 'index.html' || f.path === '/index.html'));
+        if (!hasRootIndex) {
+          const bundledAppHtml = webPreviewService.buildPreviewHtml(allFiles, true);
+          zip.file('assets/public/index.html', bundledAppHtml);
+        }
 
         // Patch resources.arsc to change App Name (PocketCode IDE -> projectName)
         const arscFile = zip.file('resources.arsc');
@@ -329,6 +328,9 @@ dependencies {
 </manifest>
 `);
 
+    const entryFile = allFiles.find(f => !f.isFolder && (f.name === 'index.html' || f.name === 'main.html' || f.name === 'app.html' || f.name.endsWith('.html')));
+    const entryPath = entryFile ? entryFile.path.replace(/^\/+/, '') : 'index.html';
+
     const javaPath = packageName.replace(/\./g, '/');
     zip.file(`app/src/main/java/${javaPath}/MainActivity.java`, `package ${packageName};
 import android.app.Activity;
@@ -344,7 +346,7 @@ public class MainActivity extends Activity {
         wv.getSettings().setJavaScriptEnabled(true);
         wv.getSettings().setDomStorageEnabled(true);
         wv.setWebViewClient(new WebViewClient());
-        wv.loadUrl("file:///android_asset/public/index.html");
+        wv.loadUrl("file:///android_asset/public/${entryPath}");
         setContentView(wv);
     }
 }

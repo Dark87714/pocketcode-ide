@@ -729,9 +729,9 @@ export class FileSystemService {
     const targetName = this.currentProjectName;
 
     projectStore.setFiles(targetFiles);
-    this.saveToLocalStorage();
 
     const doSave = async () => {
+      this.saveToLocalStorage();
       const project: Project = {
         projectId: targetProjectId,
         name: targetName,
