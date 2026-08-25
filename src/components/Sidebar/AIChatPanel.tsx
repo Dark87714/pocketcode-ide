@@ -54,8 +54,18 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
+  const [provider, setProvider] = useState<'gemini' | 'openai' | 'claude' | 'groq' | 'ollama'>('gemini');
+  const [modelInput, setModelInput] = useState('');
+  const [endpointInput, setEndpointInput] = useState('');
+
   useEffect(() => {
-    aiService.loadApiKey().then(key => setHasKey(!!key));
+    aiService.loadConfig().then(cfg => {
+      setHasKey(!!cfg.apiKey || cfg.provider === 'ollama');
+      setProvider(cfg.provider);
+      setApiKeyInput(cfg.apiKey || '');
+      setModelInput(cfg.model || '');
+      setEndpointInput(cfg.customEndpoint || '');
+    });
   }, []);
 
   useEffect(() => {
@@ -63,12 +73,14 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
   }, [messages, isLoading]);
 
   const saveKey = () => {
-    if (apiKeyInput.trim()) {
-      aiService.saveApiKey(apiKeyInput.trim());
-      setHasKey(true);
-      setShowKeyInput(false);
-      setApiKeyInput('');
-    }
+    aiService.saveConfig({
+      provider,
+      apiKey: apiKeyInput.trim(),
+      model: modelInput.trim() || undefined,
+      customEndpoint: endpointInput.trim() || undefined
+    });
+    setHasKey(Boolean(apiKeyInput.trim() || provider === 'ollama'));
+    setShowKeyInput(false);
   };
 
   const addMessage = (role: 'user' | 'model', content: string): ChatMessage => {
@@ -86,11 +98,13 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
     setIsLoading(true);
 
     try {
-      const reply = await aiService.chat(
-        messages,
-        trimmed,
-        activeFileContent ? `File: ${activeFileName}\n${activeFileContent}` : undefined
+      const context = aiService.getWorkspaceContext(
+        activeFileContent,
+        activeFileName,
+        undefined,
+        []
       );
+      const reply = await aiService.chat(messages, trimmed, context);
       addMessage('model', reply);
     } catch (e: any) {
       addMessage('model', `**Error:** ${e.message}`);
@@ -150,7 +164,7 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
         <div className="flex items-center gap-1.5">
           <Bot size={13} className="text-violet-400" />
           <span className="font-bold text-[11px] uppercase tracking-wider text-[#999999]">AI ASSISTANT</span>
-          <span className="text-[9px] px-1.5 py-0.5 rounded bg-violet-500/20 text-violet-300 font-semibold">Gemini</span>
+          <span className="text-[9px] px-1.5 py-0.5 rounded bg-violet-500/20 text-violet-300 font-semibold uppercase">{provider}</span>
         </div>
         <div className="flex items-center gap-1">
           {messages.length > 0 && (
@@ -165,30 +179,59 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
           <button
             onClick={() => setShowKeyInput(v => !v)}
             className={`p-1 rounded hover:bg-white/10 ${hasKey ? 'text-emerald-400' : 'text-amber-400'}`}
-            title={hasKey ? 'API key configured' : 'Set API key'}
+            title={hasKey ? 'AI settings configured' : 'Configure AI provider'}
           >
             <Key size={11} />
           </button>
         </div>
       </div>
 
-      {/* API Key input */}
+      {/* API Key & Provider Settings Input */}
       {showKeyInput && (
-        <div className="px-3 py-2 bg-[#252526] border-b border-[#333333] shrink-0">
-          <p className="text-[10px] text-[#999] mb-1.5">Enter your Gemini API key (<a href="https://aistudio.google.com/app/apikey" target="_blank" className="text-sky-400 underline">Get one free</a>):</p>
-          <div className="flex gap-1">
-            <input
-              type="password"
-              value={apiKeyInput}
-              onChange={e => setApiKeyInput(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && saveKey()}
-              placeholder="AIzaSy..."
-              className="flex-1 bg-[#1e1e1e] border border-[#444] rounded px-2 py-1 text-[11px] text-white outline-none focus:border-violet-500"
-            />
-            <button onClick={saveKey} className="px-2 py-1 bg-violet-600 hover:bg-violet-500 text-white rounded text-[10px] font-semibold">
-              Save
-            </button>
+        <div className="px-3 py-2.5 bg-[#252526] border-b border-[#333333] shrink-0 space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-bold text-[#aaa] uppercase">Provider:</span>
+            <select
+              value={provider}
+              onChange={e => setProvider(e.target.value as any)}
+              className="bg-[#1e1e1e] border border-[#444] rounded px-1.5 py-0.5 text-[10px] text-white outline-none"
+            >
+              <option value="gemini">Google Gemini</option>
+              <option value="openai">OpenAI</option>
+              <option value="claude">Anthropic Claude</option>
+              <option value="groq">Groq (Llama 3)</option>
+              <option value="ollama">Local Ollama</option>
+            </select>
           </div>
+
+          {provider !== 'ollama' ? (
+            <div className="flex gap-1">
+              <input
+                type="password"
+                value={apiKeyInput}
+                onChange={e => setApiKeyInput(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && saveKey()}
+                placeholder={`${provider.toUpperCase()} API Key...`}
+                className="flex-1 bg-[#1e1e1e] border border-[#444] rounded px-2 py-1 text-[11px] text-white outline-none focus:border-violet-500"
+              />
+              <button onClick={saveKey} className="px-2 py-1 bg-violet-600 hover:bg-violet-500 text-white rounded text-[10px] font-semibold">
+                Save
+              </button>
+            </div>
+          ) : (
+            <div className="flex gap-1">
+              <input
+                type="text"
+                value={endpointInput}
+                onChange={e => setEndpointInput(e.target.value)}
+                placeholder="http://localhost:11434"
+                className="flex-1 bg-[#1e1e1e] border border-[#444] rounded px-2 py-1 text-[11px] text-white outline-none focus:border-violet-500"
+              />
+              <button onClick={saveKey} className="px-2 py-1 bg-violet-600 hover:bg-violet-500 text-white rounded text-[10px] font-semibold">
+                Save
+              </button>
+            </div>
+          )}
         </div>
       )}
 

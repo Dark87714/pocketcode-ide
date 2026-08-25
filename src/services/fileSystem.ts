@@ -1,7 +1,10 @@
 import { get, set, del } from 'idb-keyval';
 import JSZip from 'jszip';
-import { FileItem, ProjectTemplate, ProjectMetadata } from '../types';
+import { FileItem, ProjectTemplate, ProjectMetadata, Project } from '../types';
 import { PROJECT_TEMPLATES } from './templates';
+import { normalizePath, validateFilename } from '../utils/pathUtils';
+import { persistenceService } from './persistenceService';
+import { projectStore } from './projectStore';
 
 const STORAGE_KEY = 'pocketcode_workspace_files_v3';
 const BACKUP_STORAGE_KEY = 'pocketcode_workspace_backup_v3';
@@ -68,8 +71,8 @@ export class FileSystemService {
   private untitledCounter = 1;
 
   async loadWorkspace(): Promise<FileItem[]> {
-    // 1. Check active project ID and active project name
-    const activeId = localStorage.getItem(ACTIVE_PROJECT_ID_KEY) || 'default_project';
+    // 1. Check active project ID from persistence / cache
+    const activeId = localStorage.getItem(ACTIVE_PROJECT_ID_KEY) || await persistenceService.getActiveProjectId() || 'default_project';
     this.currentProjectId = activeId;
 
     // Instantly restore saved project name from localStorage cache
@@ -78,9 +81,27 @@ export class FileSystemService {
       this.currentProjectName = savedName.trim();
     }
 
+    // 2. Try loading structured Project from PersistenceService (IndexedDB v4)
+    try {
+      const persistedProject = await persistenceService.loadProject(activeId);
+      if (persistedProject && Array.isArray(persistedProject.files) && persistedProject.files.length > 0) {
+        const { files: migrated } = this.migrateWorkspaceData(persistedProject.files);
+        this.files = migrated;
+        this.currentProjectName = persistedProject.name || this.currentProjectName;
+        projectStore.setProject({
+          ...persistedProject,
+          files: this.files
+        }, true);
+        this.saveToLocalStorage();
+        return this.files;
+      }
+    } catch (err) {
+      console.warn('[FileSystem] PersistenceService loadProject fallback:', err);
+    }
+
     const projectStorageKey = `${STORAGE_KEY}_${activeId}`;
 
-    // 2. Read from localStorage synchronous cache first for instant 0ms startup
+    // 3. Read from localStorage synchronous backup for quick hydration
     try {
       const backupJson = localStorage.getItem(`${BACKUP_STORAGE_KEY}_${activeId}`) || (activeId === 'default_project' ? localStorage.getItem(BACKUP_STORAGE_KEY) : null);
       if (backupJson) {
@@ -88,27 +109,31 @@ export class FileSystemService {
         if (Array.isArray(backup) && backup.length > 0) {
           const { files: migrated } = this.migrateWorkspaceData(backup);
           this.files = migrated;
+          projectStore.setFiles(this.files);
           this.syncProjectsIndex().catch(() => {});
           return this.files;
         }
       }
-    } catch (e) {}
+    } catch (e) {
+      console.warn('[FileSystem] localStorage backup read failed:', e);
+    }
 
-    // 3. Try IndexedDB if localStorage was not cached
+    // 4. Try legacy IndexedDB storage
     try {
       const stored = await get<FileItem[]>(projectStorageKey);
       if (stored && Array.isArray(stored) && stored.length > 0) {
         const { files: migrated } = this.migrateWorkspaceData(stored);
         this.files = migrated;
+        projectStore.setFiles(this.files);
         this.saveToLocalStorage();
         this.syncProjectsIndex().catch(() => {});
         return this.files;
       }
     } catch (e) {
-      console.warn('Failed to load from IndexedDB:', e);
+      console.warn('[FileSystem] Legacy IndexedDB load failed:', e);
     }
 
-    // 4. Try legacy storage keys (v2, v1) for cross-version data migration ONLY for default_project
+    // 5. Try cross-version legacy keys (v2, v1) ONLY for default_project
     if (activeId === 'default_project') {
       try {
         const legacyKeys = [
@@ -122,15 +147,18 @@ export class FileSystemService {
           if (legacyStored && Array.isArray(legacyStored) && legacyStored.length > 0) {
             const { files: migrated } = this.migrateWorkspaceData(legacyStored);
             this.files = migrated;
+            projectStore.setFiles(this.files);
             await this.saveWorkspace(true);
             await this.syncProjectsIndex();
             return this.files;
           }
         }
-      } catch (e) {}
+      } catch (e) {
+        console.warn('[FileSystem] Legacy migration fallback failed:', e);
+      }
     }
 
-    // 5. Default initial workspace
+    // 6. Default initial workspace
     const initialUntitled: FileItem = {
       id: `file_untitled_${Date.now()}`,
       name: 'Untitled-1.js',
@@ -140,6 +168,7 @@ export class FileSystemService {
       isFolder: false
     };
     this.files = [initialUntitled];
+    projectStore.setFiles(this.files);
     await this.saveWorkspace(true);
     await this.syncProjectsIndex();
     return this.files;
@@ -697,15 +726,29 @@ export class FileSystemService {
   async saveWorkspace(immediate: boolean = false): Promise<void> {
     const targetProjectId = this.currentProjectId;
     const targetFiles = this.files;
+    const targetName = this.currentProjectName;
 
+    projectStore.setFiles(targetFiles);
     this.saveToLocalStorage();
 
     const doSave = async () => {
-      const projectStorageKey = `${STORAGE_KEY}_${targetProjectId}`;
+      const project: Project = {
+        projectId: targetProjectId,
+        name: targetName,
+        files: targetFiles,
+        settings: projectStore.getSettings(),
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        formatVersion: 1
+      };
+
       try {
+        await persistenceService.saveProject(project, true);
+        // Also update legacy storage key for backward compatibility
+        const projectStorageKey = `${STORAGE_KEY}_${targetProjectId}`;
         await set(projectStorageKey, targetFiles);
       } catch (e) {
-        console.error('Failed to save to IndexedDB:', e);
+        console.error('[FileSystem] Failed to save project through persistenceService:', e);
       }
     };
 
@@ -754,7 +797,9 @@ export class FileSystemService {
         localStorage.setItem(ACTIVE_PROJECT_NAME_KEY, this.currentProjectName);
       }
       localStorage.setItem(ACTIVE_PROJECT_ID_KEY, this.currentProjectId);
-    } catch (e) {}
+    } catch (e) {
+      console.warn('[FileSystem] localStorage backup save failed:', e);
+    }
   }
 
   createFilesFromTemplate(template: ProjectTemplate): FileItem[] {
@@ -833,10 +878,11 @@ export class FileSystemService {
   }
 
   getFileByPath(path: string): FileItem | undefined {
-    const cleanPath = path.startsWith('/') ? path.slice(1) : path;
+    const target = normalizePath(path);
+    if (!target) return undefined;
     const findInTree = (items: FileItem[]): FileItem | undefined => {
       for (const item of items) {
-        if (item.path === cleanPath || item.path === path) return item;
+        if (normalizePath(item.path) === target) return item;
         if (item.children) {
           const res = findInTree(item.children);
           if (res) return res;
@@ -853,8 +899,8 @@ export class FileSystemService {
     targetFolderId: string | null = null,
     initialContent: string = ''
   ): Promise<FileItem> {
-    const cleanInput = rawPath.replace(/^[/\\]+/, '').replace(/[/\\]+$/, '');
-    if (!cleanInput) {
+    const canonicalInput = normalizePath(rawPath);
+    if (!canonicalInput) {
       throw new Error('Invalid file or folder path');
     }
 
@@ -866,18 +912,18 @@ export class FileSystemService {
       if (targetFolder && targetFolder.isFolder) {
         if (!targetFolder.children) targetFolder.children = [];
         targetArray = targetFolder.children;
-        parentPath = targetFolder.path;
+        parentPath = normalizePath(targetFolder.path);
         targetFolder.isExpanded = true;
       }
     }
 
-    // If cleanInput starts with parentPath, strip it so we don't duplicate path hierarchy
-    let relativePath = cleanInput;
+    // If canonicalInput starts with parentPath, strip it so we don't duplicate path hierarchy
+    let relativePath = canonicalInput;
     if (parentPath && (relativePath === parentPath || relativePath.startsWith(parentPath + '/'))) {
-      relativePath = relativePath.slice(parentPath.length).replace(/^[/\\]+/, '');
+      relativePath = relativePath.slice(parentPath.length).replace(/^\/+/, '');
     }
 
-    const parts = relativePath.split(/[/\\]+/).filter(Boolean);
+    const parts = relativePath.split('/').filter(Boolean);
     if (parts.length === 0) {
       throw new Error('Invalid file or folder path');
     }
@@ -887,10 +933,21 @@ export class FileSystemService {
 
     for (let i = 0; i < parts.length; i++) {
       const part = parts[i];
+      const nameValidation = validateFilename(part);
+      if (!nameValidation.valid) {
+        throw new Error(nameValidation.error || `Invalid file/folder name: "${part}"`);
+      }
+
       const isLast = i === parts.length - 1;
       accumulatedPath = accumulatedPath ? `${accumulatedPath}/${part}` : part;
 
       if (isLast) {
+        // Prevent duplicate sibling path collision
+        const duplicate = currentChildren.find(c => c.name.toLowerCase() === part.toLowerCase());
+        if (duplicate) {
+          throw new Error(`An item named "${part}" already exists in this folder.`);
+        }
+
         const newItem: FileItem = {
           id: `${isFolder ? 'folder' : 'file'}_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`,
           name: part,
@@ -906,7 +963,7 @@ export class FileSystemService {
         this.saveWorkspace(false);
         return newItem;
       } else {
-        let existing = currentChildren.find(item => item.isFolder && item.name === part);
+        let existing = currentChildren.find(item => item.isFolder && item.name.toLowerCase() === part.toLowerCase());
         if (!existing) {
           existing = {
             id: `folder_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`,

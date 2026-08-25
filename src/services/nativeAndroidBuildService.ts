@@ -95,14 +95,25 @@ export class NativeAndroidBuildService {
 
     log('📦 [2/5] Creating Clean Gradle Source Bundle in memory...', 'info');
     const zip = new JSZip();
+    let fileCount = 0;
     for (const f of files) {
-      if (!f.isFolder) {
+      if (!f.isFolder && f.content !== undefined) {
         const cleanPath = f.path.replace(/\\/g, '/').replace(/^\/+/, '');
-        zip.file(cleanPath, f.content);
+        // Exclude binary dist, .git, and node_modules
+        if (
+          !cleanPath.startsWith('.git/') &&
+          !cleanPath.startsWith('node_modules/') &&
+          !cleanPath.startsWith('dist/') &&
+          !cleanPath.startsWith('.gradle/') &&
+          !cleanPath.startsWith('build/')
+        ) {
+          zip.file(cleanPath, f.content);
+          fileCount++;
+        }
       }
     }
 
-    log(`  ✓ Bundled ${files.length} project files into build workspace.`, 'output');
+    log(`  ✓ Bundled ${fileCount} clean project source files into build workspace.`, 'output');
 
     // Check if user has configured a custom Cloud Builder endpoint
     const customEndpoint = this.getEndpoint();

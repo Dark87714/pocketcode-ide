@@ -1,6 +1,20 @@
 import { get as idbGet, set as idbSet, del as idbDel } from 'idb-keyval';
+import { fileSystemService } from './fileSystem';
+import { projectStore } from './projectStore';
 
-const GEMINI_KEY_STORE = 'pocketcode_gemini_api_key';
+const AI_CONFIG_KEY = 'pocketcode_ai_config_v2';
+const LEGACY_GEMINI_KEY = 'pocketcode_gemini_api_key';
+
+export type AIProvider = 'gemini' | 'openai' | 'claude' | 'groq' | 'ollama';
+
+export interface AIProviderConfig {
+  provider: AIProvider;
+  apiKey: string;
+  model: string;
+  customEndpoint?: string;
+  temperature?: number;
+  maxTokens?: number;
+}
 
 export interface ChatMessage {
   id: string;
@@ -9,96 +23,234 @@ export interface ChatMessage {
   timestamp: number;
 }
 
-export interface AICodeAction {
-  label: string;
-  prompt: string;
+export interface WorkspaceAIContext {
+  projectName: string;
+  activeFilePath?: string;
+  activeLanguage?: string;
+  selectedCode?: string;
+  cursorLine?: number;
+  fileSnippet?: string;
+  diagnostics?: string[];
 }
 
-class AIService {
-  private apiKey: string = '';
+export interface CodeDiffChunk {
+  type: 'unchanged' | 'addition' | 'deletion';
+  content: string;
+  lineNumber?: number;
+}
+
+export class AIService {
+  private config: AIProviderConfig = {
+    provider: 'gemini',
+    apiKey: '',
+    model: 'gemini-1.5-flash',
+    temperature: 0.7,
+    maxTokens: 2048
+  };
   private isLoaded: boolean = false;
-  private modelName: string = 'gemini-1.5-flash';
 
-  private getEndpointUrl(model: string = this.modelName): string {
-    return `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
+  constructor() {
+    this.loadConfig();
   }
 
-  async loadApiKey(): Promise<string> {
-    if (this.isLoaded && this.apiKey) return this.apiKey;
+  async loadConfig(): Promise<AIProviderConfig> {
+    if (this.isLoaded && this.config.apiKey) return this.config;
 
-    // 1. Try to load from IndexedDB
     try {
-      const stored = await idbGet<string>(GEMINI_KEY_STORE);
-      if (stored) {
-        this.apiKey = stored;
+      const stored = await idbGet<AIProviderConfig>(AI_CONFIG_KEY);
+      if (stored && stored.provider) {
+        this.config = { ...this.config, ...stored };
         this.isLoaded = true;
-        return stored;
+        return this.config;
       }
     } catch (err) {
-      console.warn('[AIService] Failed to read API key from IndexedDB:', err);
+      console.warn('[AIService] Failed to load config from IndexedDB:', err);
     }
 
-    // 2. Migration: check legacy localStorage, migrate to IndexedDB, remove from localStorage
+    // Fallback: migrate legacy single Gemini key
     try {
-      const legacyKey = localStorage.getItem(GEMINI_KEY_STORE);
+      const legacyKey = await idbGet<string>(LEGACY_GEMINI_KEY) || localStorage.getItem(LEGACY_GEMINI_KEY);
       if (legacyKey) {
-        this.apiKey = legacyKey;
-        this.isLoaded = true;
-        await idbSet(GEMINI_KEY_STORE, legacyKey);
-        localStorage.removeItem(GEMINI_KEY_STORE);
-        return legacyKey;
+        this.config.apiKey = legacyKey;
+        this.config.provider = 'gemini';
+        this.config.model = 'gemini-1.5-flash';
+        await this.saveConfig(this.config);
       }
-    } catch (err) {
-      console.warn('[AIService] Failed to migrate API key from localStorage:', err);
-    }
+    } catch {}
 
     this.isLoaded = true;
-    return '';
+    return this.config;
   }
 
-  async saveApiKey(key: string): Promise<void> {
-    this.apiKey = key.trim();
+  async saveConfig(config: Partial<AIProviderConfig>): Promise<void> {
+    this.config = { ...this.config, ...config };
     this.isLoaded = true;
     try {
-      if (this.apiKey) {
-        await idbSet(GEMINI_KEY_STORE, this.apiKey);
-      } else {
-        await idbDel(GEMINI_KEY_STORE);
-      }
-      localStorage.removeItem(GEMINI_KEY_STORE);
+      await idbSet(AI_CONFIG_KEY, this.config);
     } catch (err) {
-      console.error('[AIService] Failed to persist API key:', err);
+      console.error('[AIService] Failed to save AI config:', err);
     }
   }
 
   hasApiKey(): boolean {
-    return !!this.apiKey;
+    return Boolean(this.config.apiKey || this.config.provider === 'ollama');
   }
 
-  private async callGemini(prompt: string, systemContext?: string, timeoutMs: number = 30000): Promise<string> {
-    const key = await this.loadApiKey();
-    if (!key) throw new Error('No Gemini API key configured. Click the key icon to add yours.');
+  getProvider(): AIProvider {
+    return this.config.provider;
+  }
 
-    const systemInstruction = systemContext || 
-      'You are an expert coding assistant inside PocketCode IDE. ' +
-      'Be concise and practical. Format code blocks with markdown. ' +
-      'When showing code, always specify the language in the code fence.';
+  getModel(): string {
+    return this.config.model;
+  }
+
+  // --- Workspace Context Aggregator (Phase 36) ---
+
+  getWorkspaceContext(
+    activeFileContent?: string,
+    activeFilePath?: string,
+    selectedCode?: string,
+    diagnostics?: string[]
+  ): WorkspaceAIContext {
+    const project = projectStore.getProject();
+    return {
+      projectName: project.name,
+      activeFilePath,
+      activeLanguage: activeFilePath ? activeFilePath.split('.').pop() : 'javascript',
+      selectedCode,
+      fileSnippet: activeFileContent ? activeFileContent.slice(0, 4000) : undefined,
+      diagnostics
+    };
+  }
+
+  // --- Multi-Provider AI Inference Dispatcher (Phase 35) ---
+
+  async callAI(prompt: string, systemInstruction?: string, timeoutMs: number = 35000): Promise<string> {
+    await this.loadConfig();
+
+    if (!this.hasApiKey()) {
+      throw new Error(`API key required for ${this.config.provider.toUpperCase()}. Configure your key in AI Settings.`);
+    }
+
+    switch (this.config.provider) {
+      case 'gemini':
+        return this.callGemini(prompt, systemInstruction, timeoutMs);
+      case 'openai':
+      case 'groq':
+      case 'ollama':
+        return this.callOpenAICompatible(prompt, systemInstruction, timeoutMs);
+      case 'claude':
+        return this.callClaude(prompt, systemInstruction, timeoutMs);
+      default:
+        return this.callGemini(prompt, systemInstruction, timeoutMs);
+    }
+  }
+
+  private async callGemini(prompt: string, systemInstruction?: string, timeoutMs: number = 35000): Promise<string> {
+    const defaultInstruction = systemInstruction ||
+      'You are PocketCode AI, an expert mobile and web coding assistant. ' +
+      'Provide concise, production-ready code with clear markdown fences and explanations.';
+
+    const model = this.config.model || 'gemini-1.5-flash';
+    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
 
     const body = {
-      system_instruction: { parts: [{ text: systemInstruction }] },
+      system_instruction: { parts: [{ text: defaultInstruction }] },
       contents: [{ role: 'user', parts: [{ text: prompt }] }],
-      generationConfig: { temperature: 0.7, maxOutputTokens: 2048 }
+      generationConfig: {
+        temperature: this.config.temperature ?? 0.7,
+        maxOutputTokens: this.config.maxTokens ?? 2048
+      }
     };
 
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
 
     try {
-      const res = await fetch(this.getEndpointUrl(), {
+      const res = await fetch(endpoint, {
         method: 'POST',
-        headers: { 
+        headers: {
           'Content-Type': 'application/json',
-          'x-goog-api-key': key
+          'x-goog-api-key': this.config.apiKey
+        },
+        body: JSON.stringify(body),
+        signal: controller.signal
+      });
+
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => ({}));
+        throw new Error(errJson?.error?.message || `Gemini API Error: ${res.status}`);
+      }
+
+      const data = await res.json();
+      return data.candidates?.[0]?.content?.parts?.[0]?.text || '(No response)';
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  private async callOpenAICompatible(prompt: string, systemInstruction?: string, timeoutMs: number = 35000): Promise<string> {
+    const isOllama = this.config.provider === 'ollama';
+    const isGroq = this.config.provider === 'groq';
+    
+    let baseEndpoint = 'https://api.openai.com/v1/chat/completions';
+    if (isGroq) baseEndpoint = 'https://api.groq.com/openai/v1/chat/completions';
+    if (isOllama) baseEndpoint = `${this.config.customEndpoint || 'http://localhost:11434'}/v1/chat/completions`;
+
+    const body = {
+      model: this.config.model || (isGroq ? 'llama-3.1-70b-versatile' : isOllama ? 'llama3' : 'gpt-4o-mini'),
+      messages: [
+        { role: 'system', content: systemInstruction || 'You are an expert coding assistant in PocketCode IDE.' },
+        { role: 'user', content: prompt }
+      ],
+      temperature: this.config.temperature ?? 0.7,
+      max_tokens: this.config.maxTokens ?? 2048
+    };
+
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (this.config.apiKey) headers['Authorization'] = `Bearer ${this.config.apiKey}`;
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+    try {
+      const res = await fetch(baseEndpoint, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(body),
+        signal: controller.signal
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err?.error?.message || `Inference error: HTTP ${res.status}`);
+      }
+
+      const data = await res.json();
+      return data.choices?.[0]?.message?.content || '(No response)';
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  private async callClaude(prompt: string, systemInstruction?: string, timeoutMs: number = 35000): Promise<string> {
+    const body = {
+      model: this.config.model || 'claude-3-5-sonnet-20241022',
+      max_tokens: this.config.maxTokens ?? 2048,
+      system: systemInstruction || 'You are an expert coding assistant in PocketCode IDE.',
+      messages: [{ role: 'user', content: prompt }]
+    };
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+    try {
+      const res = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': this.config.apiKey,
+          'anthropic-version': '2023-06-01'
         },
         body: JSON.stringify(body),
         signal: controller.signal
@@ -106,72 +258,87 @@ class AIService {
 
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
-        throw new Error(err?.error?.message || `API error ${res.status}`);
+        throw new Error(err?.error?.message || `Claude API error: ${res.status}`);
       }
 
       const data = await res.json();
-      return data.candidates?.[0]?.content?.parts?.[0]?.text || '(No response)';
-    } catch (err: any) {
-      if (err.name === 'AbortError') {
-        throw new Error(`AI request timed out after ${timeoutMs / 1000}s. Please check your network.`);
-      }
-      throw err;
+      return data.content?.[0]?.text || '(No response)';
     } finally {
-      clearTimeout(timeoutId);
+      clearTimeout(timer);
     }
   }
 
-  async chat(messages: ChatMessage[], newMessage: string, fileContext?: string): Promise<string> {
-    const context = fileContext
-      ? `\n\nCurrent file context:\n\`\`\`\n${fileContext.slice(0, 3000)}\n\`\`\`\n\n`
-      : '';
+  // --- Streaming Chat (Phase 38) ---
+
+  async chat(messages: ChatMessage[], newMessage: string, context?: WorkspaceAIContext): Promise<string> {
+    let ctxString = '';
+    if (context) {
+      ctxString += `\n[Project: ${context.projectName}]`;
+      if (context.activeFilePath) ctxString += `\n[Active File: ${context.activeFilePath}]`;
+      if (context.selectedCode) ctxString += `\n[Selected Code:\n\`\`\`\n${context.selectedCode}\n\`\`\`]`;
+      if (context.fileSnippet && !context.selectedCode) ctxString += `\n[File Content:\n\`\`\`\n${context.fileSnippet}\n\`\`\`]`;
+      if (context.diagnostics && context.diagnostics.length > 0) ctxString += `\n[Diagnostics:\n${context.diagnostics.join('\n')}]`;
+    }
 
     const history = messages
-      .slice(-6) // keep last 6 messages for context window
+      .slice(-6)
       .map(m => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content}`)
-      .join('\n');
+      .join('\n\n');
 
-    const prompt = `${history ? `Previous conversation:\n${history}\n\n` : ''}${context}User: ${newMessage}`;
-    return this.callGemini(prompt);
+    const prompt = `${history ? `Conversation History:\n${history}\n\n` : ''}${ctxString}\n\nUser Question: ${newMessage}`;
+    return this.callAI(prompt);
   }
 
-  async explainCode(code: string, language: string): Promise<string> {
-    return this.callGemini(
-      `Explain this ${language} code concisely, highlighting what it does and any important patterns:\n\n\`\`\`${language}\n${code}\n\`\`\``
+  // --- Inline Code Completion for Ghost Text (Phase 37) ---
+
+  async completeInlineCode(prefix: string, suffix: string = '', language: string = 'javascript'): Promise<string> {
+    const prompt = `Complete the following ${language} code at the insertion cursor marked by [CURSOR].
+Return ONLY the completion code to replace [CURSOR]. Do not repeat the prefix or suffix. Do not include markdown fences.
+
+Code Before Cursor:
+${prefix.slice(-1500)}
+[CURSOR]
+Code After Cursor:
+${suffix.slice(0, 500)}`;
+
+    const raw = await this.callAI(prompt, 'You are an inline code autocompletion engine. Return raw continuation text only.');
+    return raw.replace(/^```[\w]*\n?/, '').replace(/\n?```$/, '').trimEnd();
+  }
+
+  // --- Code Refactoring & Multi-File Diff (Phase 39) ---
+
+  async refactorCode(code: string, language: string, instruction?: string): Promise<string> {
+    return this.callAI(
+      `Refactor this ${language} code${instruction ? ` according to: "${instruction}"` : ' to follow modern clean architecture, performance, and best practices'}. Return the updated code block:\n\n\`\`\`${language}\n${code}\n\`\`\``
     );
   }
 
   async fixError(code: string, error: string, language: string): Promise<string> {
-    return this.callGemini(
-      `Fix this ${language} error. Show the corrected code with a brief explanation of what was wrong.\n\nError: ${error}\n\nCode:\n\`\`\`${language}\n${code}\n\`\`\``
+    return this.callAI(
+      `Fix this ${language} error. Show the corrected code with a brief explanation.\n\nError:\n${error}\n\nCode:\n\`\`\`${language}\n${code}\n\`\`\``
+    );
+  }
+
+  async explainCode(code: string, language: string): Promise<string> {
+    return this.callAI(
+      `Explain this ${language} code concisely, highlighting its architecture, inputs, and behavior:\n\n\`\`\`${language}\n${code}\n\`\`\``
     );
   }
 
   async generateTests(code: string, language: string): Promise<string> {
-    return this.callGemini(
-      `Generate comprehensive unit tests for this ${language} code. Use the standard testing framework for the language:\n\n\`\`\`${language}\n${code}\n\`\`\``
-    );
-  }
-
-  async refactorCode(code: string, language: string, instruction?: string): Promise<string> {
-    return this.callGemini(
-      `Refactor this ${language} code${instruction ? ` to: ${instruction}` : ' for better readability, performance, and best practices'}. Show the refactored version:\n\n\`\`\`${language}\n${code}\n\`\`\``
+    return this.callAI(
+      `Generate comprehensive unit tests for this ${language} code using standard test frameworks:\n\n\`\`\`${language}\n${code}\n\`\`\``
     );
   }
 
   async generateDocstring(code: string, language: string): Promise<string> {
-    return this.callGemini(
-      `Add comprehensive documentation comments/docstrings to this ${language} code. Return the fully documented version:\n\n\`\`\`${language}\n${code}\n\`\`\``
+    return this.callAI(
+      `Add comprehensive documentation comments and type annotations to this ${language} code. Return the fully documented version:\n\n\`\`\`${language}\n${code}\n\`\`\``
     );
   }
 
   async completeCode(prefix: string, language: string): Promise<string> {
-    const res = await this.callGemini(
-      `Complete the following ${language} code. Return ONLY the completion text (not the prefix, no markdown fences, no explanation):\n\n${prefix}`,
-      'You are a code completion engine. Return only raw code continuation, no explanations, no markdown.'
-    );
-    // Strip any accidental code fences
-    return res.replace(/^```[\w]*\n?/, '').replace(/\n?```$/, '').trim();
+    return this.completeInlineCode(prefix, '', language);
   }
 }
 

@@ -1,6 +1,7 @@
 import { fileSystemService } from './fileSystem';
 
 const COMPILER_ENDPOINT_KEY = 'pocketcode_compiler_endpoint';
+const COMPILER_AUTH_TOKEN_KEY = 'pocketcode_compiler_auth_token';
 const DEFAULT_ENDPOINT = 'https://emkc.org/api/v2/piston';
 
 export interface CompilerFile {
@@ -54,15 +55,36 @@ const LANGUAGE_REGISTRY: Record<string, LanguageMapping> = {
   python: { language: 'python', version: '3.10.0', aliases: ['python', 'py'] }
 };
 
-class CompilerService {
+export class CompilerService {
   private endpoint: string = '';
+  private authToken: string = '';
 
   constructor() {
     this.endpoint = this.loadEndpoint();
+    this.authToken = this.loadAuthToken();
   }
 
   getEndpoint(): string {
     return this.endpoint || DEFAULT_ENDPOINT;
+  }
+
+  getAuthToken(): string {
+    return this.authToken;
+  }
+
+  setAuthToken(token: string): void {
+    this.authToken = token.trim();
+    try {
+      localStorage.setItem(COMPILER_AUTH_TOKEN_KEY, this.authToken);
+    } catch {}
+  }
+
+  private loadAuthToken(): string {
+    try {
+      return localStorage.getItem(COMPILER_AUTH_TOKEN_KEY) || '';
+    } catch {
+      return '';
+    }
   }
 
   setEndpoint(url: string) {
@@ -196,12 +218,17 @@ class CompilerService {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 20000);
 
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json'
+      };
+      if (this.authToken) {
+        headers['Authorization'] = `Bearer ${this.authToken}`;
+      }
+
       const endpoint = `${this.getEndpoint()}/execute`;
       const response = await fetch(endpoint, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
+        headers,
         body: JSON.stringify(payload),
         signal: controller.signal
       });

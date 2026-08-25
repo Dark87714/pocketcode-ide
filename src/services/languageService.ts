@@ -248,4 +248,53 @@ export function setupMonacoIntellisense(monacoInstance: typeof monaco) {
       }
     });
   } catch {}
+
+  // 6. AI Ghost Text Inline Completion Provider (Phase 37)
+  const supportedLangs = ['javascript', 'typescript', 'python', 'html', 'css', 'json', 'rust', 'go', 'cpp', 'java', 'kotlin', 'sql'];
+  supportedLangs.forEach(lang => {
+    try {
+      monacoInstance.languages.registerInlineCompletionsProvider(lang, {
+        provideInlineCompletions: async (model, position, context, token) => {
+          // Only trigger on explicit request or after debounce
+          const text = model.getValue();
+          const offset = model.getOffsetAt(position);
+          const prefix = text.slice(0, offset);
+          const suffix = text.slice(offset);
+
+          if (prefix.trim().length < 10) {
+            return { items: [] };
+          }
+
+          try {
+            const { aiService } = await import('./aiService');
+            if (!aiService.hasApiKey()) {
+              return { items: [] };
+            }
+
+            const completion = await aiService.completeInlineCode(prefix, suffix, lang);
+            if (!completion || token.isCancellationRequested) {
+              return { items: [] };
+            }
+
+            return {
+              items: [
+                {
+                  insertText: completion,
+                  range: new monacoInstance.Range(
+                    position.lineNumber,
+                    position.column,
+                    position.lineNumber,
+                    position.column
+                  )
+                }
+              ]
+            };
+          } catch {
+            return { items: [] };
+          }
+        },
+        freeInlineCompletions: () => {}
+      });
+    } catch {}
+  });
 }

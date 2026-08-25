@@ -71,18 +71,23 @@ export const SearchPanel: React.FC<SearchPanelProps> = ({ onOpenFile }) => {
 
       lines.forEach((line, idx) => {
         regex.lastIndex = 0;
-        const match = regex.exec(line);
-        if (match) {
+        let match: RegExpExecArray | null;
+        while ((match = regex.exec(line)) !== null) {
           const matchIndex = match.index;
           const matchLen = match[0].length;
           matches.push({
             file,
             lineNumber: idx + 1,
             lineContent: line,
-            previewBefore: line.substring(0, matchIndex).trimStart(),
+            previewBefore: line.substring(Math.max(0, matchIndex - 25), matchIndex).trimStart(),
             previewMatch: match[0],
-            previewAfter: line.substring(matchIndex + matchLen).trimEnd()
+            previewAfter: line.substring(matchIndex + matchLen, matchIndex + matchLen + 40).trimEnd()
           });
+
+          // Prevent infinite loop if zero-width match
+          if (matchLen === 0) {
+            regex.lastIndex++;
+          }
         }
       });
 

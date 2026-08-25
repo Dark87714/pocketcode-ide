@@ -170,6 +170,66 @@ class SQLiteService {
     if (!file) return { columns: ['error'], rows: [['File not found']], executionTimeMs: 0, error: 'File not found' };
     return this.executeQuery(file.content || '');
   }
+
+  // --- Data Editing & Mutation Helpers (Phase 63) ---
+
+  async updateCell(tableName: string, pkColumn: string, pkValue: any, columnName: string, newValue: any): Promise<QueryResult> {
+    const formattedVal = typeof newValue === 'number' ? newValue : `'${String(newValue).replace(/'/g, "''")}'`;
+    const formattedPk = typeof pkValue === 'number' ? pkValue : `'${String(pkValue).replace(/'/g, "''")}'`;
+    return this.executeQuery(`UPDATE "${tableName}" SET "${columnName}" = ${formattedVal} WHERE "${pkColumn}" = ${formattedPk}`);
+  }
+
+  async deleteRow(tableName: string, pkColumn: string, pkValue: any): Promise<QueryResult> {
+    const formattedPk = typeof pkValue === 'number' ? pkValue : `'${String(pkValue).replace(/'/g, "''")}'`;
+    return this.executeQuery(`DELETE FROM "${tableName}" WHERE "${pkColumn}" = ${formattedPk}`);
+  }
+
+  async insertRow(tableName: string, rowData: Record<string, any>): Promise<QueryResult> {
+    const cols = Object.keys(rowData);
+    const vals = cols.map(c => {
+      const v = rowData[c];
+      if (v === null || v === undefined) return 'NULL';
+      if (typeof v === 'number') return v;
+      return `'${String(v).replace(/'/g, "''")}'`;
+    });
+    return this.executeQuery(`INSERT INTO "${tableName}" (${cols.map(c => `"${c}"`).join(', ')}) VALUES (${vals.join(', ')})`);
+  }
+
+  // --- Export & Import Capabilities (Phase 64) ---
+
+  async exportTableToCsv(tableName: string): Promise<string> {
+    const res = await this.executeQuery(`SELECT * FROM "${tableName}"`);
+    if (res.error || !res.columns.length) return '';
+    const header = res.columns.join(',');
+    const rows = res.rows.map(r => r.map(c => `"${String(c ?? '').replace(/"/g, '""')}"`).join(','));
+    return [header, ...rows].join('\n');
+  }
+
+  async exportTableToJson(tableName: string): Promise<string> {
+    const res = await this.executeQuery(`SELECT * FROM "${tableName}"`);
+    if (res.error) return '[]';
+    const jsonRows = res.rows.map(r => {
+      const obj: Record<string, any> = {};
+      res.columns.forEach((col, idx) => {
+        obj[col] = r[idx];
+      });
+      return obj;
+    });
+    return JSON.stringify(jsonRows, null, 2);
+  }
+
+  async exportDatabaseBinary(): Promise<Uint8Array | null> {
+    await this.initialize();
+    if (!db) return null;
+    try {
+      if (typeof sqliteModule?.capi?.sqlite3_js_db_export === 'function') {
+        return sqliteModule.capi.sqlite3_js_db_export(db);
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  }
 }
 
 export const sqliteService = new SQLiteService();

@@ -234,6 +234,9 @@ export class TerminalService {
     if (!trimmed) return;
 
     this.commandHistory.push(trimmed);
+    if (this.commandHistory.length > 500) {
+      this.commandHistory.shift();
+    }
     this.historyIndex = this.commandHistory.length;
 
     // Show input line with current active project name
@@ -2077,37 +2080,46 @@ Run 'test:security' for sandbox audit or 'test:perf' for benchmarks.
       }
 
       // -------------------------------------------------------------
-      // 6. GIT VERSION CONTROL
+      // 6. GIT VERSION CONTROL (Real isomorphic-git Engine)
       // -------------------------------------------------------------
       case 'git': {
         const sub = args[0];
         if (sub === 'status') {
-          const status = gitService.getStatus();
+          const status = await realGitService.getStatus();
           onOutput({
             id: `line_${Date.now()}`,
             type: 'info',
             content: `On branch ${status.branch}\n` +
               (status.staged.length > 0 ? `Changes to be committed:\n${status.staged.map(m => `  staged:   ${m}`).join('\n')}\n` : '') +
-              (status.modified.length > 0 ? `Changes not staged for commit:\n${status.modified.map(m => `  modified: ${m}`).join('\n')}` : 'nothing to commit, working tree clean')
+              (status.modified.length > 0 ? `Changes not staged for commit:\n${status.modified.map(m => `  modified: ${m}`).join('\n')}\n` : '') +
+              (status.untracked.length > 0 ? `Untracked files:\n${status.untracked.map(u => `  untracked: ${u}`).join('\n')}\n` : '') +
+              (status.staged.length === 0 && status.modified.length === 0 && status.untracked.length === 0 ? 'nothing to commit, working tree clean' : '')
           });
         } else if (sub === 'add') {
           const target = args[1];
           if (target === '.' || target === '-A') {
-            gitService.stageAll();
-            onOutput({ id: `line_${Date.now()}`, type: 'success', content: 'Staged all modified workspace files.' });
+            await realGitService.stageAll();
+            onOutput({ id: `line_${Date.now()}`, type: 'success', content: 'Staged all modified and untracked workspace files.' });
           } else if (target) {
-            gitService.stageFile(target);
+            await realGitService.stageFile(target);
             onOutput({ id: `line_${Date.now()}`, type: 'success', content: `Staged: ${target}` });
           }
         } else if (sub === 'commit') {
           const msgIdx = args.indexOf('-m');
           const commitMsg = msgIdx !== -1 && args[msgIdx + 1] ? args[msgIdx + 1] : 'Update workspace files';
-          const commit = gitService.commit(commitMsg);
-          onOutput({ id: `line_${Date.now()}`, type: 'success', content: `[${gitService.getCurrentBranch()} ${commit.hash.slice(0, 7)}] ${commit.message}` });
+          try {
+            const sha = await realGitService.commit(commitMsg);
+            const status = await realGitService.getStatus();
+            onOutput({ id: `line_${Date.now()}`, type: 'success', content: `[${status.branch} ${sha.slice(0, 7)}] ${commitMsg}` });
+          } catch (err: any) {
+            onOutput({ id: `line_${Date.now()}`, type: 'error', content: `git commit failed: ${err.message}` });
+          }
         } else if (sub === 'log') {
           const isOneline = args.includes('--oneline');
-          const commits = gitService.getCommits();
-          if (isOneline) {
+          const commits = await realGitService.getCommits(20);
+          if (commits.length === 0) {
+            onOutput({ id: `line_${Date.now()}`, type: 'info', content: 'No commits in repository yet.' });
+          } else if (isOneline) {
             const lines = commits.map(c => `${c.hash.slice(0, 7)} ${c.message}`).join('\n');
             onOutput({ id: `line_${Date.now()}`, type: 'output', content: lines });
           } else {
@@ -2116,26 +2128,31 @@ Run 'test:security' for sandbox audit or 'test:perf' for benchmarks.
           }
         } else if (sub === 'branch') {
           if (args[1]) {
-            gitService.createBranch(args[1]);
+            await realGitService.createBranch(args[1]);
             onOutput({ id: `line_${Date.now()}`, type: 'success', content: `Created branch '${args[1]}'` });
           } else {
-            const curr = gitService.getCurrentBranch();
-            const branches = gitService.getBranches().map(b => b === curr ? `* \x1b[32m${b}\x1b[0m` : `  ${b}`).join('\n');
-            onOutput({ id: `line_${Date.now()}`, type: 'output', content: branches });
+            const status = await realGitService.getStatus();
+            const branches = await realGitService.getBranches();
+            const branchList = branches.map(b => b === status.branch ? `* \x1b[32m${b}\x1b[0m` : `  ${b}`).join('\n');
+            onOutput({ id: `line_${Date.now()}`, type: 'output', content: branchList });
           }
         } else if (sub === 'checkout' || sub === 'switch') {
           const isNewBranch = args.includes('-b');
           const branchName = isNewBranch ? args[args.indexOf('-b') + 1] : args[1];
           if (branchName) {
-            gitService.setBranch(branchName);
+            if (isNewBranch) {
+              await realGitService.createBranch(branchName);
+            }
+            await realGitService.checkoutBranch(branchName);
             onOutput({ id: `line_${Date.now()}`, type: 'success', content: `Switched to branch '${branchName}'` });
           }
         } else if (sub === 'diff') {
-          const status = gitService.getStatus();
-          if (status.modified.length === 0) {
-            onOutput({ id: `line_${Date.now()}`, type: 'output', content: 'No modified files to diff.' });
+          const status = await realGitService.getStatus();
+          if (status.modified.length === 0 && status.staged.length === 0) {
+            onOutput({ id: `line_${Date.now()}`, type: 'output', content: 'No modified files to diff. Working tree clean.' });
           } else {
-            onOutput({ id: `line_${Date.now()}`, type: 'output', content: status.modified.map(m => `diff --git a/${m} b/${m}\n--- a/${m}\n+++ b/${m}`).join('\n') });
+            const diffs = [...status.staged, ...status.modified].map(m => `diff --git a/${m} b/${m}\n--- a/${m}\n+++ b/${m}`);
+            onOutput({ id: `line_${Date.now()}`, type: 'output', content: diffs.join('\n') });
           }
         } else if (sub === 'clone') {
           const repoUrl = args[1];
@@ -2145,33 +2162,35 @@ Run 'test:security' for sandbox audit or 'test:perf' for benchmarks.
           }
           onOutput({ id: `line_${Date.now()}`, type: 'system', content: `Cloning into '${repoUrl.split('/').pop()}'...` });
           try {
-            await fileSystemService.cloneGitRepository(repoUrl, (msg) => {
+            await realGitService.cloneRepository(repoUrl, (msg) => {
               onOutput({ id: `line_${Date.now()}_${Math.random()}`, type: 'info', content: msg });
             });
             onOutput({ id: `line_${Date.now()}`, type: 'success', content: 'Clone complete.' });
           } catch (e: any) {
             onOutput({ id: `line_${Date.now()}`, type: 'error', content: `git clone error: ${e.message}` });
           }
-        } else if (sub === 'remote') {
-          const isVerbose = args.includes('-v');
-          const remotes = gitService.getRemotes();
-          if (isVerbose) {
-            const list = Object.entries(remotes).map(([k, v]) => `${k}\t${v} (fetch)\n${k}\t${v} (push)`).join('\n');
-            onOutput({ id: `line_${Date.now()}`, type: 'output', content: list });
-          } else {
-            onOutput({ id: `line_${Date.now()}`, type: 'output', content: Object.keys(remotes).join('\n') });
-          }
         } else if (sub === 'stash') {
-          if (args[1] === 'pop') {
-            const popped = gitService.popStash();
-            onOutput({ id: `line_${Date.now()}`, type: 'success', content: popped ? `Dropped stash: ${popped}` : 'No stash entries found.' });
+          const stashCmd = args[1];
+          if (stashCmd === 'pop') {
+            const popped = await realGitService.popStash();
+            onOutput({ id: `line_${Date.now()}`, type: 'success', content: popped ? `Restored and dropped stash: ${popped.id} (${popped.message})` : 'No stash entries found.' });
+          } else if (stashCmd === 'list') {
+            const stashes = await realGitService.listStashes();
+            if (stashes.length === 0) {
+              onOutput({ id: `line_${Date.now()}`, type: 'info', content: 'No stashed changes.' });
+            } else {
+              const lines = stashes.map(s => `${s.id}: ${s.message} [${new Date(s.timestamp).toLocaleTimeString()}]`).join('\n');
+              onOutput({ id: `line_${Date.now()}`, type: 'output', content: lines });
+            }
           } else {
-            const stashId = gitService.stash();
+            const msg = args.slice(1).join(' ');
+            const stashId = await realGitService.stash(msg || undefined);
             onOutput({ id: `line_${Date.now()}`, type: 'success', content: `Saved working directory and index state ${stashId}` });
           }
         } else if (sub === 'push') {
           const remote = args[1] || 'origin';
-          const branch = args[2] || gitService.getCurrentBranch();
+          const status = await realGitService.getStatus();
+          const branch = args[2] || status.branch || 'main';
           onOutput({ id: `line_${Date.now()}`, type: 'system', content: `Pushing to ${remote}/${branch}...` });
           try {
             await realGitService.push(remote, branch, (msg: string) => {
@@ -2179,11 +2198,12 @@ Run 'test:security' for sandbox audit or 'test:perf' for benchmarks.
             });
             onOutput({ id: `line_${Date.now()}`, type: 'success', content: `Successfully pushed to ${remote}/${branch}.` });
           } catch (e: any) {
-            onOutput({ id: `line_${Date.now()}`, type: 'success', content: `Everything up-to-date with ${remote}/${branch}.` });
+            onOutput({ id: `line_${Date.now()}`, type: 'error', content: `Push failed: ${e.message}` });
           }
         } else if (sub === 'pull') {
           const remote = args[1] || 'origin';
-          const branch = args[2] || gitService.getCurrentBranch();
+          const status = await realGitService.getStatus();
+          const branch = args[2] || status.branch || 'main';
           onOutput({ id: `line_${Date.now()}`, type: 'system', content: `Pulling from ${remote}/${branch}...` });
           try {
             await realGitService.pull(remote, branch, (msg: string) => {
@@ -2191,12 +2211,12 @@ Run 'test:security' for sandbox audit or 'test:perf' for benchmarks.
             });
             onOutput({ id: `line_${Date.now()}`, type: 'success', content: `Pulled successfully from ${remote}/${branch}.` });
           } catch (e: any) {
-            onOutput({ id: `line_${Date.now()}`, type: 'success', content: `Already up to date.` });
+            onOutput({ id: `line_${Date.now()}`, type: 'error', content: `Pull failed: ${e.message}` });
           }
         } else if (sub === 'version' || sub === '--version') {
-          onOutput({ id: `line_${Date.now()}`, type: 'output', content: 'git version 2.44.0 (PocketCode WASM isomorphic-git edition)' });
+          onOutput({ id: `line_${Date.now()}`, type: 'output', content: 'git version 2.44.0 (PocketCode isomorphic-git real engine)' });
         } else {
-          onOutput({ id: `line_${Date.now()}`, type: 'output', content: 'Git subcommands: status, add, commit, log, branch, checkout, switch, diff, clone, remote, stash, push, pull' });
+          onOutput({ id: `line_${Date.now()}`, type: 'output', content: 'Git subcommands: status, add, commit, log, branch, checkout, switch, diff, clone, stash (list/pop), push, pull' });
         }
         break;
       }

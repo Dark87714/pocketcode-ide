@@ -286,7 +286,7 @@ export const CURATED_EXTENSIONS: ExtensionItem[] = [
     id: 'enkia.tokyo-night',
     name: 'Tokyo Night',
     publisher: 'enkia',
-    version: '1.0.8',
+    version: '1.0.9',
     description: 'A clean Visual Studio Code dark theme celebrating the lights of downtown Tokyo',
     icon: 'Palette',
     downloads: '2.8M',

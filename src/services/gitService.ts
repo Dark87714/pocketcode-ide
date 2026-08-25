@@ -1,184 +1,74 @@
+import { realGitService, RealGitStatus } from './realGitService';
 import { GitCommit } from '../types';
-import { fileSystemService } from './fileSystem';
 
-export interface GitStatus {
-  branch: string;
-  staged: string[];
-  modified: string[];
-  untracked: string[];
-}
-
+/**
+ * GitService (Legacy Interface Adapter)
+ * Re-routes all calls directly to RealGitService (isomorphic-git) to ensure a single, consistent source of truth.
+ */
 export class GitService {
-  private currentBranch: string = 'main';
-  private branches: string[] = ['main', 'dev'];
-  private tags: string[] = ['v1.0.0'];
-  private remotes: Record<string, string> = {
-    origin: 'https://github.com/developer/pocketcode-workspace.git'
-  };
-  private stashes: { id: string; message: string; timestamp: number }[] = [];
-  private stagedFiles: Set<string> = new Set();
-  private commits: GitCommit[] = [
-    {
-      id: 'c_init',
-      hash: '9f82ab4',
-      message: 'Initial project setup & scaffolding',
-      author: 'PocketCode Developer <dev@pocketcode.app>',
-      timestamp: Date.now() - 3600000 * 2,
-      filesChanged: ['index.html', 'style.css', 'game.js']
-    }
-  ];
-
-  getCurrentBranch(): string {
-    return this.currentBranch;
+  async getStatus(): Promise<RealGitStatus> {
+    return realGitService.getStatus();
   }
 
-  setBranch(branch: string) {
-    this.currentBranch = branch;
-    if (!this.branches.includes(branch)) {
-      this.branches.push(branch);
-    }
+  async stageFile(filepath: string): Promise<void> {
+    return realGitService.stageFile(filepath);
   }
 
-  getBranches(): string[] {
-    return this.branches;
+  async stageAll(): Promise<void> {
+    return realGitService.stageAll();
   }
 
-  createBranch(branch: string): boolean {
-    if (!this.branches.includes(branch)) {
-      this.branches.push(branch);
-      return true;
-    }
-    return false;
+  async unstageFile(filepath: string): Promise<void> {
+    return realGitService.unstageFile(filepath);
   }
 
-  deleteBranch(branch: string): boolean {
-    if (branch === this.currentBranch || branch === 'main') return false;
-    const idx = this.branches.indexOf(branch);
-    if (idx !== -1) {
-      this.branches.splice(idx, 1);
-      return true;
-    }
-    return false;
+  async unstageAll(): Promise<void> {
+    return realGitService.unstageAll();
   }
 
-  getTags(): string[] {
-    return this.tags;
+  async commit(message: string): Promise<string> {
+    return realGitService.commit(message);
   }
 
-  createTag(tag: string): boolean {
-    if (!this.tags.includes(tag)) {
-      this.tags.push(tag);
-      return true;
-    }
-    return false;
+  async getCommits(depth: number = 20): Promise<GitCommit[]> {
+    return realGitService.getCommits(depth);
   }
 
-  getRemotes(): Record<string, string> {
-    return this.remotes;
+  async getBranches(): Promise<string[]> {
+    return realGitService.getBranches();
   }
 
-  setRemote(name: string, url: string) {
-    this.remotes[name] = url;
+  async createBranch(name: string): Promise<void> {
+    return realGitService.createBranch(name);
   }
 
-  removeRemote(name: string): boolean {
-    if (this.remotes[name]) {
-      delete this.remotes[name];
-      return true;
-    }
-    return false;
+  async checkoutBranch(name: string): Promise<void> {
+    return realGitService.checkoutBranch(name);
   }
 
-  stash(message: string = 'WIP on ' + this.currentBranch): string {
-    const id = `stash@{${this.stashes.length}}`;
-    this.stashes.unshift({ id, message, timestamp: Date.now() });
-    this.stagedFiles.clear();
-    return id;
+  async stash(message?: string): Promise<string> {
+    return realGitService.stash(message);
   }
 
-  popStash(): string | null {
-    if (this.stashes.length === 0) return null;
-    const item = this.stashes.shift();
-    return item ? item.message : null;
+  async popStash(stashId?: string) {
+    return realGitService.popStash(stashId);
   }
 
-  getStashes(): { id: string; message: string; timestamp: number }[] {
-    return this.stashes;
+  async listStashes() {
+    return realGitService.listStashes();
   }
 
-  stageFile(path: string) {
-    this.stagedFiles.add(path);
+  async dropStash(stashId: string) {
+    return realGitService.dropStash(stashId);
   }
 
-  unstageFile(path: string) {
-    this.stagedFiles.delete(path);
+  async push(remote = 'origin', branch = 'main', onProgress?: (msg: string) => void) {
+    return realGitService.push(remote, branch, onProgress);
   }
 
-  stageAll() {
-    const files = fileSystemService.getAllFlatFiles();
-    files.forEach(f => this.stagedFiles.add(f.path));
-  }
-
-  unstageAll() {
-    this.stagedFiles.clear();
-  }
-
-  getStatus(): GitStatus {
-    const files = fileSystemService.getAllFlatFiles();
-    const modified: string[] = [];
-    const untracked: string[] = [];
-
-    files.forEach(f => {
-      if (f.isModified) {
-        if (!this.stagedFiles.has(f.path)) {
-          modified.push(f.path);
-        }
-      }
-    });
-
-    return {
-      branch: this.currentBranch,
-      staged: Array.from(this.stagedFiles),
-      modified,
-      untracked
-    };
-  }
-
-  commit(message: string): GitCommit {
-    const changed = Array.from(this.stagedFiles);
-    const hash = typeof crypto !== 'undefined' && crypto.randomUUID 
-      ? crypto.randomUUID().replace(/-/g, '').substring(0, 7)
-      : Math.random().toString(16).substring(2, 9).padEnd(7, '0');
-    const newCommit: GitCommit = {
-      id: `commit_${Date.now()}`,
-      hash,
-      message,
-      author: 'PocketCode Developer <dev@pocketcode.app>',
-      timestamp: Date.now(),
-      filesChanged: changed.length > 0 ? changed : ['*']
-    };
-
-    this.commits.unshift(newCommit);
-    this.stagedFiles.clear();
-    
-    // Clear isModified flag on files
-    const allFiles = fileSystemService.getAllFlatFiles();
-    allFiles.forEach(f => {
-      f.isModified = false;
-    });
-
-    fileSystemService.saveWorkspace();
-    if (typeof window !== 'undefined') {
-      window.dispatchEvent(new CustomEvent('pocketcode:workspace-changed'));
-    }
-
-    return newCommit;
-  }
-
-  getCommits(): GitCommit[] {
-    return this.commits;
+  async pull(remote = 'origin', branch = 'main', onProgress?: (msg: string) => void) {
+    return realGitService.pull(remote, branch, onProgress);
   }
 }
 
 export const gitService = new GitService();
-

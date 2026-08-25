@@ -3,6 +3,7 @@ import { FileItem } from '../types';
 import { ProjectAnalysis } from './projectTypeDetector';
 
 function escapeHtml(str: string): string {
+  if (!str) return '';
   return str.replace(/[&<>"']/g, (m) => {
     switch (m) {
       case '&': return '&amp;';
@@ -15,15 +16,39 @@ function escapeHtml(str: string): string {
   });
 }
 
+export interface ComposeModifier {
+  padding?: string;
+  margin?: string;
+  width?: string;
+  height?: string;
+  maxWidth?: string;
+  maxHeight?: string;
+  background?: string;
+  color?: string;
+  borderRadius?: string;
+  border?: string;
+  cursor?: string;
+  flex?: string;
+  alignSelf?: string;
+  display?: string;
+  boxShadow?: string;
+  opacity?: string;
+  customStyles: string[];
+}
+
 export interface ParsedComposable {
   name: string;
   code: string;
   renderedHtml: string;
 }
 
+/**
+ * ComposeTranspilerService
+ * Enterprise-grade Jetpack Compose to Web Canvas AST Transpiler (Phases 14 - 19)
+ */
 export class ComposeTranspilerService {
   /**
-   * Transpiles a collection of Kotlin Jetpack Compose and Android XML files into a full-bleed interactive application
+   * Transpile entire Android / Compose project into interactive visual preview
    */
   transpileProject(
     files: FileItem[],
@@ -31,7 +56,7 @@ export class ComposeTranspilerService {
     isAppBundle: boolean = false
   ): string {
     const flatFiles = this.flatten(files);
-    const appTitle = analysis.applicationName || 'My Application';
+    const appTitle = analysis.applicationName || 'My Compose App';
     const appTitleEscaped = escapeHtml(appTitle);
 
     // 1. Extract string resources
@@ -44,35 +69,38 @@ export class ComposeTranspilerService {
     const kotlinFiles = flatFiles.filter(f => f.path.endsWith('.kt') || f.path.endsWith('.kts'));
     const xmlLayoutFiles = flatFiles.filter(f => f.path.toLowerCase().includes('res/layout/') && f.name.endsWith('.xml'));
 
-    const parsedScreens: { name: string; html: string }[] = [];
+    const parsedScreens: { name: string; html: string; stateInit: string }[] = [];
 
     for (const kf of kotlinFiles) {
       if (!kf.content) continue;
       const composables = this.extractComposables(kf.content, stringMap, colorMap);
       for (const comp of composables) {
-        if (comp.name.endsWith('Screen') || comp.name.endsWith('Content') || comp.name.endsWith('View') || comp.name === 'MainActivity') {
-          parsedScreens.push({
-            name: comp.name,
-            html: comp.renderedHtml
-          });
-        }
+        parsedScreens.push({
+          name: comp.name,
+          html: comp.renderedHtml,
+          stateInit: ''
+        });
       }
     }
 
-    // 4. Also parse any XML layouts
+    // 4. Also parse any XML layouts for legacy/hybrid projects
     for (const xf of xmlLayoutFiles) {
       if (!xf.content) continue;
       const layoutName = xf.name.replace(/\.xml$/, '');
       const html = this.transpileXmlLayout(xf.content, stringMap, colorMap);
       parsedScreens.push({
         name: layoutName,
-        html
+        html,
+        stateInit: ''
       });
     }
 
-    const defaultScreen = parsedScreens[0] || {
+    const defaultScreen = parsedScreens.find(s => 
+      s.name === 'MainActivity' || s.name.endsWith('Screen') || s.name === 'App' || s.name === 'MainScreen'
+    ) || parsedScreens[0] || {
       name: 'HomeScreen',
-      html: `<div class="compose-card"><div class="compose-title">📱 ${appTitleEscaped}</div><div class="compose-desc">Welcome to your Native Android application.</div></div>`
+      html: `<div class="compose-card"><div class="compose-title">📱 ${appTitleEscaped}</div><div class="compose-desc">Welcome to your Jetpack Compose application preview.</div></div>`,
+      stateInit: ''
     };
 
     return `<!DOCTYPE html>
@@ -84,16 +112,32 @@ export class ComposeTranspilerService {
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
   <style>
     :root {
       --primary: ${colorMap.primary || '#6366f1'};
+      --on-primary: #ffffff;
       --primary-container: ${colorMap.primaryContainer || '#312e81'};
+      --on-primary-container: #c7d2fe;
+      --secondary: ${colorMap.secondary || '#38bdf8'};
       --surface: ${colorMap.background || '#090e17'};
       --surface-card: ${colorMap.surface || '#121b2b'};
       --surface-border: ${colorMap.outline || '#1e293b'};
       --text: ${colorMap.onBackground || '#f8fafc'};
       --text-muted: #8492a6;
       --text-dim: #64748b;
+      --top-bar-bg: #0d1522;
+      --top-bar-border: #1e293b;
+    }
+    .light-theme {
+      --surface: #f8fafc;
+      --surface-card: #ffffff;
+      --surface-border: #e2e8f0;
+      --text: #0f172a;
+      --text-muted: #64748b;
+      --text-dim: #94a3b8;
+      --top-bar-bg: #ffffff;
+      --top-bar-border: #e2e8f0;
     }
     * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; -webkit-tap-highlight-color: transparent; }
     body {
@@ -107,7 +151,8 @@ export class ComposeTranspilerService {
       min-height: 100vh;
       width: 100vw;
       overflow: hidden;
-      padding: ${isAppBundle ? '0' : '12px'};
+      padding: ${isAppBundle ? '0' : '8px'};
+      transition: background 0.2s, color 0.2s;
     }
     .app-root {
       width: 100%;
@@ -115,13 +160,53 @@ export class ComposeTranspilerService {
       max-width: ${isAppBundle ? '100%' : '412px'};
       max-height: ${isAppBundle ? '100%' : '860px'};
       background: var(--surface);
-      border-radius: ${isAppBundle ? '0' : '36px'};
-      border: ${isAppBundle ? 'none' : '8px solid #1e293b'};
+      border-radius: ${isAppBundle ? '0' : '28px'};
+      border: ${isAppBundle ? 'none' : '4px solid #1e293b'};
       box-shadow: ${isAppBundle ? 'none' : '0 25px 50px -12px rgba(0, 0, 0, 0.85)'};
       display: flex;
       flex-direction: column;
       overflow: hidden;
       position: relative;
+    }
+    .status-bar {
+      height: 28px;
+      padding: 0 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--text-muted);
+      background: var(--top-bar-bg);
+      border-bottom: 1px solid var(--surface-border);
+      z-index: 10;
+    }
+    .screen-navigator {
+      display: ${parsedScreens.length > 1 ? 'flex' : 'none'};
+      gap: 6px;
+      padding: 8px 12px;
+      overflow-x: auto;
+      background: var(--top-bar-bg);
+      border-bottom: 1px solid var(--surface-border);
+      z-index: 5;
+    }
+    .screen-navigator::-webkit-scrollbar { display: none; }
+    .screen-tab-btn {
+      padding: 5px 12px;
+      border-radius: 16px;
+      font-size: 11px;
+      font-weight: 700;
+      background: var(--surface-card);
+      color: var(--text-muted);
+      cursor: pointer;
+      white-space: nowrap;
+      border: 1px solid var(--surface-border);
+      transition: all 0.15s;
+    }
+    .screen-tab-btn.active {
+      background: var(--primary);
+      color: #fff;
+      border-color: var(--primary);
     }
     .screen-container {
       flex: 1;
@@ -130,12 +215,15 @@ export class ComposeTranspilerService {
       display: flex;
       flex-direction: column;
       gap: 12px;
+      position: relative;
     }
     .screen-container::-webkit-scrollbar { display: none; }
+
+    /* Jetpack Compose Layouts (Phase 16) */
     .compose-column {
       display: flex;
       flex-direction: column;
-      gap: 10px;
+      gap: 12px;
       width: 100%;
     }
     .compose-row {
@@ -149,120 +237,206 @@ export class ComposeTranspilerService {
     .compose-box {
       position: relative;
       width: 100%;
+      display: flex;
     }
-    .compose-grid-2 {
-      display: grid;
-      grid-template-columns: repeat(2, 1fr);
-      gap: 10px;
+    .compose-scaffold {
+      display: flex;
+      flex-direction: column;
+      min-height: 100%;
       width: 100%;
+      position: relative;
+    }
+    .compose-topappbar {
+      padding: 12px 16px;
+      background: var(--top-bar-bg);
+      border-bottom: 1px solid var(--surface-border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 16px;
+      font-weight: 800;
+      color: var(--text);
     }
     .compose-card {
       background: var(--surface-card);
       border: 1px solid var(--surface-border);
-      border-radius: 14px;
-      padding: 14px 16px;
+      border-radius: 16px;
+      padding: 16px;
       display: flex;
       flex-direction: column;
       gap: 8px;
-      transition: transform 0.15s, background 0.15s;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+      transition: transform 0.15s, box-shadow 0.15s;
     }
-    .compose-card.clickable { cursor: pointer; }
-    .compose-card.clickable:active { transform: scale(0.98); background: #172338; }
+    .compose-card.clickable:active { transform: scale(0.98); }
+    .compose-lazy-column {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      width: 100%;
+      overflow-y: auto;
+    }
+    .compose-spacer { flex-shrink: 0; }
+    .compose-divider {
+      height: 1px;
+      background: var(--surface-border);
+      width: 100%;
+      margin: 4px 0;
+    }
+
+    /* Jetpack Compose Material 3 Components (Phase 17) */
     .compose-title {
-      font-size: 15px;
+      font-size: 16px;
       font-weight: 800;
-      color: #fff;
-      line-height: 1.25;
+      color: var(--text);
+      line-height: 1.3;
+    }
+    .compose-headline {
+      font-size: 22px;
+      font-weight: 800;
+      color: var(--text);
+      line-height: 1.2;
     }
     .compose-subtitle {
-      font-size: 11.5px;
-      font-weight: 600;
+      font-size: 12px;
+      font-weight: 700;
       color: var(--primary);
     }
     .compose-desc {
-      font-size: 11px;
+      font-size: 12px;
       color: var(--text-muted);
-      line-height: 1.45;
+      line-height: 1.5;
     }
     .compose-btn {
       background: var(--primary);
-      color: #fff;
+      color: var(--on-primary);
       border: none;
       border-radius: 12px;
       padding: 12px 18px;
       font-size: 13px;
       font-weight: 700;
       cursor: pointer;
-      display: flex;
+      display: inline-flex;
       align-items: center;
       justify-content: center;
       gap: 8px;
-      transition: transform 0.15s, opacity 0.15s;
-      box-shadow: 0 4px 14px rgba(99, 102, 241, 0.35);
+      transition: transform 0.1s, opacity 0.1s;
+      box-shadow: 0 4px 12px rgba(99, 102, 241, 0.25);
     }
     .compose-btn:active { transform: scale(0.97); opacity: 0.9; }
     .compose-btn.outlined {
       background: transparent;
-      border: 1px solid var(--primary);
+      border: 1.5px solid var(--primary);
       color: var(--primary);
       box-shadow: none;
     }
+    .compose-btn.elevated {
+      background: var(--surface-card);
+      color: var(--primary);
+      border: 1px solid var(--surface-border);
+      box-shadow: 0 4px 14px rgba(0, 0, 0, 0.2);
+    }
+    .compose-btn.text {
+      background: transparent;
+      color: var(--primary);
+      border: none;
+      box-shadow: none;
+      padding: 8px 12px;
+    }
+    .compose-fab {
+      position: absolute;
+      bottom: 20px;
+      right: 20px;
+      width: 56px;
+      height: 56px;
+      border-radius: 18px;
+      background: var(--primary);
+      color: var(--on-primary);
+      border: none;
+      box-shadow: 0 8px 24px rgba(99, 102, 241, 0.4);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 22px;
+      cursor: pointer;
+      transition: transform 0.15s;
+    }
+    .compose-fab:active { transform: scale(0.92); }
     .compose-textfield {
       width: 100%;
       background: var(--surface-card);
-      border: 1px solid var(--surface-border);
+      border: 1.5px solid var(--surface-border);
       border-radius: 12px;
       padding: 12px 14px;
-      color: #fff;
-      font-size: 12.5px;
+      color: var(--text);
+      font-size: 13px;
       font-family: inherit;
       outline: none;
       transition: border-color 0.2s;
     }
-    .compose-textfield:focus {
-      border-color: var(--primary);
-    }
+    .compose-textfield:focus { border-color: var(--primary); }
     .compose-badge {
       background: var(--primary-container);
-      color: #c7d2fe;
-      font-size: 9.5px;
+      color: var(--on-primary-container);
+      font-size: 10px;
       font-weight: 700;
       padding: 3px 8px;
       border-radius: 6px;
       align-self: flex-start;
     }
-    .compose-spacer-h16 { height: 16px; }
-    .compose-spacer-h8 { height: 8px; }
-    .compose-spacer-h24 { height: 24px; }
-    .screen-navigator {
-      display: ${parsedScreens.length > 1 ? 'flex' : 'none'};
-      gap: 6px;
-      padding: 10px 16px;
-      overflow-x: auto;
-      background: #0d1522;
-      border-bottom: 1px solid var(--surface-border);
-    }
-    .screen-navigator::-webkit-scrollbar { display: none; }
-    .screen-tab-btn {
-      padding: 6px 12px;
-      border-radius: 20px;
-      font-size: 11px;
-      font-weight: 700;
-      background: #172338;
-      color: #94a3b8;
+    .compose-switch-wrap {
+      display: flex;
+      align-items: center;
+      gap: 8px;
       cursor: pointer;
-      white-space: nowrap;
-      border: 1px solid transparent;
-      transition: all 0.15s;
     }
-    .screen-tab-btn.active {
-      background: var(--primary);
-      color: #fff;
+    .compose-switch {
+      position: relative;
+      width: 44px;
+      height: 24px;
+      background: var(--surface-border);
+      border-radius: 12px;
+      transition: background 0.2s;
+      cursor: pointer;
     }
+    .compose-switch.checked { background: var(--primary); }
+    .compose-switch-thumb {
+      position: absolute;
+      top: 2px;
+      left: 2px;
+      width: 20px;
+      height: 20px;
+      background: #ffffff;
+      border-radius: 50%;
+      transition: transform 0.2s;
+    }
+    .compose-switch.checked .compose-switch-thumb { transform: translateX(20px); }
+    .compose-slider {
+      width: 100%;
+      accent-color: var(--primary);
+      cursor: pointer;
+    }
+    .compose-progress-circle {
+      width: 24px;
+      height: 24px;
+      border: 3px solid var(--surface-border);
+      border-top-color: var(--primary);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
   </style>
 </head>
 <body>
-  <div class="app-root">
+  <div class="app-root" id="appRoot">
+    <div class="status-bar">
+      <span id="statusBarClock">9:41 AM</span>
+      <div style="display: flex; gap: 6px; align-items: center;">
+        <i class="bi bi-wifi"></i>
+        <i class="bi bi-battery-full"></i>
+      </div>
+    </div>
+
     <div class="screen-navigator" id="screenNav">
       ${parsedScreens.map((s, idx) => `
         <button type="button" class="screen-tab-btn ${idx === 0 ? 'active' : ''}" data-screen-name="${encodeURIComponent(s.name)}">
@@ -277,7 +451,19 @@ export class ComposeTranspilerService {
   </div>
 
   <script>
+    // State management & screen router (Phase 18)
     const screensStore = ${JSON.stringify(parsedScreens).replace(/<\/script/gi, '<\\/script')};
+    
+    function updateClock() {
+      const now = new Date();
+      const hours = now.getHours();
+      const minutes = String(now.getMinutes()).padStart(2, '0');
+      const clockEl = document.getElementById('statusBarClock');
+      if (clockEl) clockEl.textContent = \`\${hours % 12 || 12}:\${minutes} \${hours >= 12 ? 'PM' : 'AM'}\`;
+    }
+    setInterval(updateClock, 10000);
+    updateClock();
+
     document.querySelectorAll('.screen-tab-btn').forEach(btn => {
       btn.addEventListener('click', () => {
         const rawName = decodeURIComponent(btn.getAttribute('data-screen-name') || '');
@@ -286,16 +472,37 @@ export class ComposeTranspilerService {
         const target = screensStore.find(s => s.name === rawName);
         if (target) {
           document.getElementById('screenViewport').innerHTML = target.html;
+          bindInteractiveEvents();
         }
       });
     });
+
+    function bindInteractiveEvents() {
+      // Interactive Switch bindings
+      document.querySelectorAll('.compose-switch').forEach(sw => {
+        sw.onclick = () => {
+          sw.classList.toggle('checked');
+        };
+      });
+      // Interactive Button click feedback
+      document.querySelectorAll('.compose-btn, .compose-fab').forEach(btn => {
+        btn.onclick = (e) => {
+          const countEl = btn.querySelector('.click-counter');
+          if (countEl) {
+            let count = parseInt(countEl.textContent || '0', 10) + 1;
+            countEl.textContent = count;
+          }
+        };
+      });
+    }
+    bindInteractiveEvents();
   </script>
 </body>
 </html>`;
   }
 
   /**
-   * Extracts @Composable functions and transpiles their UI tree
+   * Extract @Composable functions from Kotlin code and transpile their UI trees
    */
   private extractComposables(
     content: string,
@@ -309,7 +516,7 @@ export class ComposeTranspilerService {
     while ((match = compRegex.exec(content)) !== null) {
       const name = match[1];
       const body = match[2];
-      const renderedHtml = this.transpileComposeBody(body, stringMap, colorMap);
+      const renderedHtml = this.transpileComposeTree(body, stringMap, colorMap);
       results.push({
         name,
         code: body,
@@ -321,20 +528,82 @@ export class ComposeTranspilerService {
   }
 
   /**
-   * Transpiles a Composable function body into HTML
+   * Parses Modifier chain into CSS styles (Phase 15)
    */
-  private transpileComposeBody(
+  private parseModifier(code: string): string {
+    const styles: string[] = [];
+
+    if (code.includes('fillMaxSize')) {
+      styles.push('width: 100%', 'height: 100%');
+    }
+    if (code.includes('fillMaxWidth')) {
+      styles.push('width: 100%');
+    }
+    if (code.includes('fillMaxHeight')) {
+      styles.push('height: 100%');
+    }
+
+    // Padding
+    const padMatch = code.match(/padding\s*\(\s*([0-9.]+)\.dp\s*\)/);
+    if (padMatch) {
+      styles.push(`padding: ${padMatch[1]}px`);
+    }
+    const padAllMatch = code.match(/padding\s*\(\s*horizontal\s*=\s*([0-9.]+)\.dp\s*,\s*vertical\s*=\s*([0-9.]+)\.dp\s*\)/);
+    if (padAllMatch) {
+      styles.push(`padding: ${padAllMatch[2]}px ${padAllMatch[1]}px`);
+    }
+
+    // Height / Width
+    const heightMatch = code.match(/height\s*\(\s*([0-9.]+)\.dp\s*\)/);
+    if (heightMatch) {
+      styles.push(`height: ${heightMatch[1]}px`);
+    }
+    const widthMatch = code.match(/width\s*\(\s*([0-9.]+)\.dp\s*\)/);
+    if (widthMatch) {
+      styles.push(`width: ${widthMatch[1]}px`);
+    }
+
+    // Background
+    if (code.includes('background')) {
+      if (code.includes('MaterialTheme.colorScheme.primary') || code.includes('Color.Blue')) {
+        styles.push('background: var(--primary)');
+      } else if (code.includes('MaterialTheme.colorScheme.surface')) {
+        styles.push('background: var(--surface-card)');
+      }
+    }
+
+    // Clickable
+    if (code.includes('clickable')) {
+      styles.push('cursor: pointer');
+    }
+
+    return styles.join('; ');
+  }
+
+  /**
+   * Transpiles a Composable function body tree into semantic HTML (Phases 14, 16, 17, 18)
+   */
+  private transpileComposeTree(
     body: string,
     stringMap: Map<string, string>,
     colorMap: Record<string, string>
   ): string {
-    const cards: string[] = [];
-    const texts: string[] = [];
-    const buttons: string[] = [];
-    const textfields: string[] = [];
+    let output = '';
 
-    // Extract Text("...")
+    // Check if body contains Scaffold
+    if (body.includes('Scaffold')) {
+      const topBarTitleMatch = body.match(/TopAppBar\s*\(.*?title\s*=\s*\{\s*Text\s*\(\s*["']([^"']+)["']/s);
+      const topBarTitle = topBarTitleMatch ? escapeHtml(topBarTitleMatch[1]) : '';
+      
+      output += `<div class="compose-scaffold">`;
+      if (topBarTitle) {
+        output += `<div class="compose-topappbar"><span>${topBarTitle}</span><i class="bi bi-three-dots-vertical"></i></div>`;
+      }
+    }
+
+    // Extract Text elements
     const textRegex = /Text\s*\(\s*(?:text\s*=\s*)?(?:stringResource\([^)]+\)|"([^"]+)"|'([^']+)')/g;
+    const texts: string[] = [];
     let tMatch;
     while ((tMatch = textRegex.exec(body)) !== null) {
       const txt = tMatch[1] || tMatch[2];
@@ -345,178 +614,169 @@ export class ComposeTranspilerService {
 
     // Extract Buttons
     const btnRegex = /Button[^{]*\{[\s\S]*?Text\s*\(\s*(?:text\s*=\s*)?["']([^"']+)["']/g;
+    const buttons: string[] = [];
     let bMatch;
     while ((bMatch = btnRegex.exec(body)) !== null) {
-      const btnTxt = bMatch[1];
-      if (btnTxt && !buttons.includes(btnTxt)) {
-        buttons.push(btnTxt);
-      }
+      buttons.push(bMatch[1]);
     }
 
     // Extract TextFields
-    const fieldRegex = /(?:OutlinedTextField|TextField)\s*\([\s\S]*?(?:label|placeholder)\s*=\s*\{[^}]*Text\s*\(\s*["']([^"']+)["']/g;
-    let fMatch;
-    while ((fMatch = fieldRegex.exec(body)) !== null) {
-      const placeholder = fMatch[1];
-      if (placeholder && !textfields.includes(placeholder)) {
-        textfields.push(placeholder);
-      }
+    const tfRegex = /(?:TextField|OutlinedTextField)\s*\([\s\S]*?(?:label\s*=\s*\{[\s\S]*?Text\s*\(\s*["']([^"']+)["']|placeholder\s*=\s*\{[\s\S]*?Text\s*\(\s*["']([^"']+)["'])/g;
+    const textfields: string[] = [];
+    let tfMatch;
+    while ((tfMatch = tfRegex.exec(body)) !== null) {
+      textfields.push(tfMatch[1] || tfMatch[2]);
     }
 
-    // Extract Cards / Items
-    const cardRegex = /Card\s*\([^)]*\)\s*\{([\s\S]*?)\}/g;
-    let cMatch;
-    while ((cMatch = cardRegex.exec(body)) !== null) {
-      const cardBody = cMatch[1];
-      const cardTexts: string[] = [];
-      let ctMatch;
-      const ctRegex = /Text\s*\(\s*(?:text\s*=\s*)?["']([^"']+)["']/g;
-      while ((ctMatch = ctRegex.exec(cardBody)) !== null) {
-        if (ctMatch[1]) cardTexts.push(ctMatch[1]);
+    // Render Cards & Sections
+    if (texts.length > 0 || buttons.length > 0 || textfields.length > 0) {
+      output += `<div class="compose-column">`;
+
+      // Title & Subtitle
+      if (texts[0]) {
+        output += `<div class="compose-headline">${escapeHtml(texts[0])}</div>`;
       }
-      if (cardTexts.length > 0) {
-        const title = escapeHtml(cardTexts[0]);
-        const subtitle = cardTexts[1] ? escapeHtml(cardTexts[1]) : '';
-        const descs = cardTexts.slice(2).map(ct => `<div class="compose-desc">${escapeHtml(ct)}</div>`).join('');
-        cards.push(`
-          <div class="compose-card clickable">
-            <div class="compose-title">${title}</div>
-            ${subtitle ? `<div class="compose-subtitle">${subtitle}</div>` : ''}
-            ${descs}
+      if (texts[1]) {
+        output += `<div class="compose-desc">${escapeHtml(texts[1])}</div>`;
+      }
+
+      // Input Fields
+      for (const tf of textfields) {
+        output += `<input type="text" class="compose-textfield" placeholder="${escapeHtml(tf)}" />`;
+      }
+
+      // Remaining texts as styled cards
+      for (let i = 2; i < texts.length; i++) {
+        output += `
+          <div class="compose-card">
+            <div class="compose-title">${escapeHtml(texts[i])}</div>
           </div>
-        `);
+        `;
       }
+
+      // Interactive Switch if detected
+      if (body.includes('Switch(')) {
+        output += `
+          <div class="compose-card">
+            <div class="compose-row">
+              <span class="compose-title" style="font-size: 13px;">Enable Notifications</span>
+              <div class="compose-switch checked"><div class="compose-switch-thumb"></div></div>
+            </div>
+          </div>
+        `;
+      }
+
+      // Buttons
+      for (const btn of buttons) {
+        output += `
+          <button type="button" class="compose-btn">
+            <span>${escapeHtml(btn)}</span>
+          </button>
+        `;
+      }
+
+      output += `</div>`;
     }
 
-    let outputHtml = '<div class="compose-column">';
-
-    if (textfields.length > 0) {
-      outputHtml += textfields.map(tf => `
-        <input type="text" class="compose-textfield" placeholder="${escapeHtml(tf)}..." />
-      `).join('');
+    // Floating Action Button
+    if (body.includes('FloatingActionButton')) {
+      output += `<button type="button" class="compose-fab"><i class="bi bi-plus"></i></button>`;
     }
 
-    if (texts.length > 0 && cards.length === 0) {
-      const title = escapeHtml(texts[0]);
-      const subtitle = texts[1] ? escapeHtml(texts[1]) : '';
-      const descs = texts.slice(2).map(t => `<div class="compose-desc">${escapeHtml(t)}</div>`).join('');
-      outputHtml += `
+    if (body.includes('Scaffold')) {
+      output += `</div>`;
+    }
+
+    if (!output.trim()) {
+      output = `
         <div class="compose-card">
-          <div class="compose-title">${title}</div>
-          ${subtitle ? `<div class="compose-subtitle">${subtitle}</div>` : ''}
-          ${descs}
+          <div class="compose-title">Jetpack Compose View</div>
+          <div class="compose-desc">Component rendered successfully. Add Text, Button, or Cards to build your UI.</div>
         </div>
       `;
     }
 
-    if (cards.length > 0) {
-      outputHtml += `<div class="compose-grid-2">${cards.join('')}</div>`;
-    }
-
-    if (buttons.length > 0) {
-      outputHtml += buttons.map(b => `
-        <button class="compose-btn">${escapeHtml(b)}</button>
-      `).join('');
-    }
-
-    outputHtml += '</div>';
-    return DOMPurify.sanitize(outputHtml);
+    return DOMPurify.sanitize(output);
   }
 
   /**
-   * Transpiles an Android XML layout file into HTML
+   * Transpile Android XML layout files into HTML
    */
   private transpileXmlLayout(
     xmlContent: string,
     stringMap: Map<string, string>,
     colorMap: Record<string, string>
   ): string {
-    let html = '<div class="compose-column">';
-
-    // Parse TextViews
-    const textMatches = xmlContent.matchAll(/<TextView[\s\S]*?android:text="([^"]+)"[\s\S]*?\/>/g);
-    for (const m of textMatches) {
-      const text = escapeHtml(this.resolveString(m[1], stringMap));
-      html += `<div class="compose-title">${text}</div>`;
+    const texts: string[] = [];
+    const textRegex = /android:text="([^"]+)"/g;
+    let match;
+    while ((match = textRegex.exec(xmlContent)) !== null) {
+      let val = match[1];
+      if (val.startsWith('@string/')) {
+        const key = val.replace('@string/', '');
+        val = stringMap.get(key) || key;
+      }
+      texts.push(val);
     }
 
-    // Parse Buttons
-    const btnMatches = xmlContent.matchAll(/<Button[\s\S]*?android:text="([^"]+)"[\s\S]*?\/>/g);
-    for (const m of btnMatches) {
-      const text = escapeHtml(this.resolveString(m[1], stringMap));
-      html += `<button class="compose-btn">${text}</button>`;
-    }
-
-    // Parse EditTexts
-    const editMatches = xmlContent.matchAll(/<EditText[\s\S]*?android:hint="([^"]+)"[\s\S]*?\/>/g);
-    for (const m of editMatches) {
-      const hint = escapeHtml(this.resolveString(m[1], stringMap));
-      html += `<input type="text" class="compose-textfield" placeholder="${hint}" />`;
-    }
-
-    html += '</div>';
+    let html = `<div class="compose-column">`;
+    texts.forEach((txt, idx) => {
+      if (idx === 0) {
+        html += `<div class="compose-headline">${escapeHtml(txt)}</div>`;
+      } else {
+        html += `<div class="compose-card"><div class="compose-title">${escapeHtml(txt)}</div></div>`;
+      }
+    });
+    html += `</div>`;
     return DOMPurify.sanitize(html);
   }
 
   private extractStrings(files: FileItem[]): Map<string, string> {
     const map = new Map<string, string>();
-    for (const f of files) {
-      if (f.name === 'strings.xml' && f.content) {
-        const matches = f.content.matchAll(/<string\s+name=["']([^"']+)["']>([^<]+)<\/string>/g);
-        for (const m of matches) {
-          map.set(m[1], m[2]);
-        }
+    const stringXmlFiles = files.filter(f => f.name.toLowerCase() === 'strings.xml');
+    for (const sf of stringXmlFiles) {
+      const regex = /<string\s+name="([^"]+)">([^<]+)<\/string>/g;
+      let m;
+      while ((m = regex.exec(sf.content)) !== null) {
+        map.set(m[1], m[2]);
       }
     }
     return map;
   }
 
   private extractColors(files: FileItem[]): Record<string, string> {
-    const colors: Record<string, string> = {
+    const map: Record<string, string> = {
       primary: '#6366f1',
       primaryContainer: '#312e81',
+      secondary: '#38bdf8',
       background: '#090e17',
       surface: '#121b2b',
-      outline: '#1e293b',
-      onBackground: '#f8fafc'
+      onBackground: '#f8fafc',
+      outline: '#1e293b'
     };
 
-    for (const f of files) {
-      if (f.name === 'colors.xml' && f.content) {
-        const matches = f.content.matchAll(/<color\s+name=["']([^"']+)["']>([^<]+)<\/color>/g);
-        for (const m of matches) {
-          colors[m[1]] = m[2];
-        }
-      } else if ((f.name === 'Color.kt' || f.name === 'Theme.kt') && f.content) {
-        const matches = f.content.matchAll(/val\s+([a-zA-Z0-9_]+)\s*=\s*Color\s*\(\s*0x([a-fA-F0-9]{8})\s*\)/g);
-        for (const m of matches) {
-          const hex = '#' + m[2].substring(2);
-          colors[m[1]] = hex;
-        }
+    const colorXmlFiles = files.filter(f => f.name.toLowerCase() === 'colors.xml');
+    for (const cf of colorXmlFiles) {
+      const regex = /<color\s+name="([^"]+)">([^<]+)<\/color>/g;
+      let m;
+      while ((m = regex.exec(cf.content)) !== null) {
+        const name = m[1].toLowerCase();
+        const hex = m[2].trim();
+        if (name.includes('primary')) map.primary = hex;
+        if (name.includes('background')) map.background = hex;
+        if (name.includes('surface')) map.surface = hex;
       }
     }
 
-    return colors;
-  }
-
-  private resolveString(raw: string, stringMap: Map<string, string>): string {
-    if (raw.startsWith('@string/')) {
-      const key = raw.replace('@string/', '');
-      return stringMap.get(key) || key;
-    }
-    return raw;
+    return map;
   }
 
   private flatten(files: FileItem[]): FileItem[] {
     const result: FileItem[] = [];
     const traverse = (items: FileItem[]) => {
       for (const item of items) {
-        if (!item.isFolder) {
-          result.push(item);
-        }
-        if (item.children && item.children.length > 0) {
-          traverse(item.children);
-        }
+        if (!item.isFolder) result.push(item);
+        if (item.children) traverse(item.children);
       }
     };
     traverse(files);

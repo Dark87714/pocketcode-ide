@@ -140,6 +140,72 @@ export interface WorkspaceMigrationReport {
   success: boolean;
 }
 
+export interface ProjectSettings {
+  language?: string;
+  entryFile?: string;
+  tabSize?: number;
+  formatOnSave?: boolean;
+  compilerVersion?: string;
+  packageName?: string;
+}
+
+export interface ProjectBuildSettings {
+  appId?: string;
+  appName?: string;
+  versionName?: string;
+  versionCode?: number;
+  minSdk?: number;
+  targetSdk?: number;
+  buildType?: 'debug' | 'release';
+}
+
+export interface ProjectGitSettings {
+  remoteUrl?: string;
+  branch?: string;
+  autoSync?: boolean;
+}
+
+export interface Project {
+  projectId: string;
+  name: string;
+  description?: string;
+  files: FileItem[];
+  settings: ProjectSettings;
+  buildSettings?: ProjectBuildSettings;
+  gitSettings?: ProjectGitSettings;
+  createdAt: number;
+  updatedAt: number;
+  formatVersion: number; // e.g. 1
+}
+
+export type SaveStatus = 'saved' | 'saving' | 'dirty' | 'error';
+
+export interface RecoverySnapshot {
+  projectId: string;
+  projectName: string;
+  timestamp: number;
+  files: FileItem[];
+  activeFileId?: string | null;
+  reason: 'autosave' | 'before_switch' | 'crash_backup';
+}
+
+export interface GitStashItem {
+  id: string;
+  message: string;
+  timestamp: number;
+  branch: string;
+  files: { path: string; content: string }[];
+  stagedPaths: string[];
+}
+
+export interface IDEError {
+  code: string;
+  message: string;
+  details?: string;
+  recoverable: boolean;
+  timestamp: number;
+}
+
 /**
  * Standardizes error formatting across all IDE subsystems
  */

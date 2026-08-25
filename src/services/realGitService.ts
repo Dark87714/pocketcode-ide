@@ -2,7 +2,7 @@ import git from 'isomorphic-git';
 import http from 'isomorphic-git/http/web';
 import { get as idbGet, set as idbSet } from 'idb-keyval';
 import { fileSystemService } from './fileSystem';
-import { GitCommit } from '../types';
+import { GitCommit, GitStashItem } from '../types';
 
 const GH_TOKEN_STORAGE_KEY = 'pocketcode_gh_token_v1';
 const LEGACY_GH_TOKEN_KEY = 'pocketcode_gh_token';
@@ -415,6 +415,99 @@ export class RealGitService {
     }
   }
 
+  // --- Real Git Stash Management (Phase 9) ---
+
+  async stash(message?: string): Promise<string> {
+    const status = await this.getStatus();
+    const projectId = fileSystemService.getCurrentProjectId();
+    const branch = status.branch || this.currentBranch;
+    const stashId = `stash@{${Date.now()}}`;
+    const stashMsg = message || `WIP on ${branch}: ${new Date().toLocaleTimeString()}`;
+
+    // Collect all modified & staged files
+    const modifiedFiles = fileSystemService.getAllFlatFiles().filter(f => f.isModified);
+    const filesToStash: { path: string; content: string }[] = modifiedFiles.map(f => ({
+      path: f.path,
+      content: f.content
+    }));
+
+    const stashItem: GitStashItem = {
+      id: stashId,
+      message: stashMsg,
+      timestamp: Date.now(),
+      branch,
+      files: filesToStash,
+      stagedPaths: status.staged
+    };
+
+    // 1. Persist stash record to IndexedDB
+    const { persistenceService } = await import('./persistenceService');
+    await persistenceService.saveGitStash(projectId, stashItem);
+
+    // 2. Revert modified workspace files back to clean HEAD state
+    try {
+      this.vfs.syncToWorkspace();
+      modifiedFiles.forEach(f => {
+        f.isModified = false;
+      });
+      await fileSystemService.saveWorkspace(true);
+    } catch (e) {
+      console.warn('[RealGitService] Stash revert workspace fallback:', e);
+    }
+
+    this.emitChange();
+    return stashId;
+  }
+
+  async listStashes(): Promise<GitStashItem[]> {
+    const projectId = fileSystemService.getCurrentProjectId();
+    const { persistenceService } = await import('./persistenceService');
+    return persistenceService.getGitStashes(projectId);
+  }
+
+  async popStash(stashId?: string): Promise<GitStashItem | null> {
+    const projectId = fileSystemService.getCurrentProjectId();
+    const { persistenceService } = await import('./persistenceService');
+    const stashes = await persistenceService.getGitStashes(projectId);
+    if (stashes.length === 0) return null;
+
+    const target = stashId ? stashes.find(s => s.id === stashId) : stashes[0];
+    if (!target) return null;
+
+    // 1. Restore file contents to workspace
+    for (const item of target.files) {
+      const existing = fileSystemService.getFileByPath(item.path);
+      if (existing) {
+        existing.content = item.content;
+        existing.isModified = true;
+      } else {
+        await fileSystemService.createFile(item.path, false, null, item.content);
+      }
+    }
+
+    // 2. Restore staged paths
+    this.vfs.syncFromWorkspace();
+    for (const stagedPath of target.stagedPaths) {
+      try {
+        await git.add({ fs: this.vfs.fs, dir: this.dir, filepath: stagedPath });
+      } catch {}
+    }
+
+    // 3. Remove stash from persistence
+    await persistenceService.deleteGitStash(projectId, target.id);
+    await fileSystemService.saveWorkspace(true);
+
+    this.emitChange();
+    return target;
+  }
+
+  async dropStash(stashId: string): Promise<void> {
+    const projectId = fileSystemService.getCurrentProjectId();
+    const { persistenceService } = await import('./persistenceService');
+    await persistenceService.deleteGitStash(projectId, stashId);
+    this.emitChange();
+  }
+
   // --- Git Blame Annotations ---
 
   async getBlame(filepath: string): Promise<GitBlameLine[]> {
@@ -424,10 +517,12 @@ export class RealGitService {
     const lines = file.content.split('\n');
     const commits = await this.getCommits(5);
     const topCommit = commits[0] || {
+      id: 'local',
       hash: 'local',
       author: 'You',
       timestamp: Date.now(),
-      message: 'Uncommitted changes'
+      message: 'Uncommitted changes',
+      filesChanged: []
     };
 
     return lines.map((_, i) => ({

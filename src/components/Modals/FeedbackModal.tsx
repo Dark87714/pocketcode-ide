@@ -102,21 +102,33 @@ export const FeedbackModal: React.FC<FeedbackModalProps> = ({ isOpen, onClose })
                   required
                 />
               </div>
-              <div className="flex justify-end gap-2">
+              <div className="flex items-center justify-between">
                 <button
                   type="button"
-                  onClick={onClose}
-                  className="px-4 py-2 text-sm font-medium text-[#cccccc] hover:text-white bg-[#333333] hover:bg-[#3c3c3c] rounded-lg transition-colors"
+                  onClick={() => {
+                    const report = `\n\n--- System Diagnostics ---\nOS: ${navigator.platform}\nUserAgent: ${navigator.userAgent}\nScreen: ${window.screen.width}x${window.screen.height}\nApp: PocketCode IDE v1.0.8\nTime: ${new Date().toISOString()}`;
+                    setFeedback(prev => prev + report);
+                  }}
+                  className="text-xs text-sky-400 hover:text-sky-300 underline"
                 >
-                  Cancel
+                  + Attach System Diagnostics
                 </button>
-                <button
-                  type="submit"
-                  disabled={isSubmitting || !feedback.trim()}
-                  className="px-4 py-2 text-sm font-medium text-white bg-[#007acc] hover:bg-[#005f9e] disabled:opacity-50 disabled:cursor-not-allowed rounded-lg flex items-center gap-2 transition-colors"
-                >
-                  {isSubmitting ? 'Sending...' : 'Submit Feedback'}
-                </button>
+                <div className="flex justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={onClose}
+                    className="px-4 py-2 text-sm font-medium text-[#cccccc] hover:text-white bg-[#333333] hover:bg-[#3c3c3c] rounded-lg transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isSubmitting || !feedback.trim()}
+                    className="px-4 py-2 text-sm font-medium text-white bg-[#007acc] hover:bg-[#005f9e] disabled:opacity-50 disabled:cursor-not-allowed rounded-lg flex items-center gap-2 transition-colors"
+                  >
+                    {isSubmitting ? 'Sending...' : 'Submit Feedback'}
+                  </button>
+                </div>
               </div>
             </form>
           )}

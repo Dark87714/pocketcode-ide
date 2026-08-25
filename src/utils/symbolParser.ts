@@ -147,7 +147,28 @@ export function extractSymbols(content: string, language: string = 'javascript')
       }
     }
 
-    // 6. CSS / SCSS
+    // 6. KOTLIN & JETPACK COMPOSE
+    if (['kotlin', 'kt', 'kts'].includes(lang)) {
+      const composeMatch = trimmed.match(/^@Composable\s+(?:fun|inline fun)\s+([a-zA-Z0-9_]+)\s*\(([^)]*)\)/);
+      if (composeMatch) {
+        symbols.push({ name: composeMatch[1], kind: 'function', line: lineNum, detail: '@Composable' });
+        return;
+      }
+
+      const ktClass = trimmed.match(/^(?:data\s+class|class|interface|enum\s+class|sealed\s+class|object)\s+([a-zA-Z0-9_]+)/);
+      if (ktClass) {
+        symbols.push({ name: ktClass[1], kind: 'class', line: lineNum, detail: 'class' });
+        return;
+      }
+
+      const ktFun = trimmed.match(/^(?:override\s+|private\s+|public\s+)?fun\s+([a-zA-Z0-9_]+)\s*\(([^)]*)\)/);
+      if (ktFun) {
+        symbols.push({ name: ktFun[1], kind: 'function', line: lineNum, detail: `(${ktFun[2] || ''})` });
+        return;
+      }
+    }
+
+    // 7. CSS / SCSS
     if (['css', 'scss', 'less'].includes(lang)) {
       const cssSelector = trimmed.match(/^([.#a-zA-Z0-9_\-\s,>:+]+)\s*\{/);
       if (cssSelector && !cssSelector[1].startsWith('@media')) {

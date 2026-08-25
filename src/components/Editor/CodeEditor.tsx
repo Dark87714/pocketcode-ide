@@ -341,62 +341,127 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({
     onChange(value || '');
   };
 
-  return (
-    <div className="w-full h-full relative overflow-hidden bg-[#1e1e1e]">
-      <Editor
-        height="100%"
-        path={path}
-        language={language}
-        value={content}
-        onChange={handleChange}
-        onMount={handleEditorDidMount}
-        theme={THEMES.find((t) => t.id === settings.theme)?.monacoTheme || 'vs-dark'}
-        options={{
-          fontSize: settings.fontSize || 14,
-          fontFamily: settings.fontFamily || '"Fira Code", Consolas, monospace',
-          fontLigatures: true,
-          tabSize: language === 'python' ? 4 : (settings.tabSize || 2),
-          insertSpaces: true,
-          detectIndentation: true,
-          trimAutoWhitespace: true,
-          glyphMargin: true, // Breakpoint gutter
-          wordWrap: settings.wordWrap || 'on',
-          minimap: { enabled: settings.minimap ?? false },
-          lineNumbers: settings.lineNumbers || 'on',
-          automaticLayout: true,
-          readOnly: false,
-          domReadOnly: false,
-          autoClosingBrackets: 'always',
-          autoClosingQuotes: 'always',
-          tabCompletion: 'on',
-          quickSuggestions: {
-            other: true,
-            comments: true,
-            strings: true
-          },
-          scrollBeyondLastLine: false,
-          smoothScrolling: true,
-          cursorBlinking: 'smooth',
-          cursorSmoothCaretAnimation: 'on',
-          contextmenu: true,
-          folding: true,
-          renderLineHighlight: 'all',
-          selectOnLineNumbers: true,
-          roundedSelection: true,
-          fixedOverflowWidgets: true,
-          scrollbar: {
-            verticalScrollbarSize: 8,
-            horizontalScrollbarSize: 8,
-            useShadows: false,
-          }
-        }}
-        loading={
-          <div className="flex flex-col items-center justify-center h-full gap-3 text-slate-400">
-            <div className="w-8 h-8 border-2 border-sky-500 border-t-transparent rounded-full animate-spin" />
-            <span className="text-sm font-medium">Loading Monaco Editor Engine...</span>
-          </div>
+  // Handle Mobile Virtual Keyboard Viewport Resize & Cursor Reveal (Phase 70)
+  useEffect(() => {
+    const handleViewportResize = () => {
+      if (editorRef.current && window.visualViewport) {
+        const activePos = editorRef.current.getPosition();
+        if (activePos) {
+          editorRef.current.revealPositionInCenter(activePos);
         }
-      />
+      }
+    };
+
+    if (typeof window !== 'undefined' && window.visualViewport) {
+      window.visualViewport.addEventListener('resize', handleViewportResize);
+      return () => {
+        window.visualViewport?.removeEventListener('resize', handleViewportResize);
+      };
+    }
+  }, []);
+
+  const insertSymbol = (symbol: string) => {
+    if (!editorRef.current) return;
+    const editor = editorRef.current;
+    const selection = editor.getSelection();
+    if (symbol === 'TAB') {
+      editor.trigger('keyboard', 'tab', null);
+      return;
+    }
+    if (symbol === 'UNDO') {
+      editor.trigger('keyboard', 'undo', null);
+      return;
+    }
+    if (symbol === 'REDO') {
+      editor.trigger('keyboard', 'redo', null);
+      return;
+    }
+    if (selection) {
+      editor.executeEdits('mobile-keypad', [{
+        range: selection,
+        text: symbol,
+        forceMoveMarkers: true
+      }]);
+      editor.focus();
+    }
+  };
+
+  const QUICK_KEYS = ['TAB', '{', '}', '(', ')', '[', ']', ';', '=', '<', '>', '"', "'", ':', '->', '=>', '|', '&', '!', 'UNDO', 'REDO'];
+
+  return (
+    <div className="w-full h-full relative flex flex-col overflow-hidden bg-[#1e1e1e]">
+      <div className="flex-1 relative overflow-hidden">
+        <Editor
+          height="100%"
+          path={path}
+          language={language}
+          value={content}
+          onChange={handleChange}
+          onMount={handleEditorDidMount}
+          theme={THEMES.find((t) => t.id === settings.theme)?.monacoTheme || 'vs-dark'}
+          options={{
+            fontSize: settings.fontSize || 14,
+            fontFamily: settings.fontFamily || '"Fira Code", Consolas, monospace',
+            fontLigatures: true,
+            tabSize: language === 'python' ? 4 : (settings.tabSize || 2),
+            insertSpaces: true,
+            detectIndentation: true,
+            trimAutoWhitespace: true,
+            glyphMargin: true, // Breakpoint gutter
+            wordWrap: settings.wordWrap || 'on',
+            minimap: { enabled: settings.minimap ?? false },
+            lineNumbers: settings.lineNumbers || 'on',
+            automaticLayout: true,
+            readOnly: false,
+            domReadOnly: false,
+            autoClosingBrackets: 'always',
+            autoClosingQuotes: 'always',
+            tabCompletion: 'on',
+            quickSuggestions: {
+              other: true,
+              comments: true,
+              strings: true
+            },
+            scrollBeyondLastLine: false,
+            smoothScrolling: true,
+            cursorBlinking: 'smooth',
+            cursorSmoothCaretAnimation: 'on',
+            contextmenu: true,
+            folding: true,
+            renderLineHighlight: 'all',
+            selectOnLineNumbers: true,
+            roundedSelection: true,
+            fixedOverflowWidgets: true,
+            scrollbar: {
+              verticalScrollbarSize: 8,
+              horizontalScrollbarSize: 8,
+              useShadows: false,
+            }
+          }}
+          loading={
+            <div className="flex flex-col items-center justify-center h-full gap-3 text-slate-400">
+              <div className="w-8 h-8 border-2 border-sky-500 border-t-transparent rounded-full animate-spin" />
+              <span className="text-sm font-medium">Loading Monaco Editor Engine...</span>
+            </div>
+          }
+        />
+      </div>
+
+      {/* Mobile Touch Quick Keypad (Phase 71) */}
+      <div className="h-9 bg-[#252526] border-t border-[#333333] flex items-center px-1 gap-1 overflow-x-auto no-scrollbar shrink-0 select-none z-10">
+        {QUICK_KEYS.map((k) => (
+          <button
+            key={k}
+            onMouseDown={(e) => {
+              e.preventDefault();
+              insertSymbol(k);
+            }}
+            className="px-2.5 h-7 rounded bg-[#333333] active:bg-sky-600 text-xs font-mono font-bold text-[#cccccc] active:text-white flex items-center justify-center shrink-0 shadow-sm"
+          >
+            {k}
+          </button>
+        ))}
+      </div>
     </div>
   );
 };
