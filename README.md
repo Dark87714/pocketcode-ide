@@ -30,7 +30,7 @@
 - **Direct Project Terminal**: Interactive terminal with real-time file tree syncing, project runner (`run`, `preview`, `code <file>`), and package management.
 - **Compact & Adaptive Mobile Header**: Refined top bar with "More Actions" overflow menu for formatting, search, and split-editor on any screen size.
 - **Custom Mobile Keybar**: Rapid access to programming symbols (`{`, `}`, `[`, `]`, `(`, `)`, `;`, `=>`, `"`, `'`, tabs, undo/redo) designed specifically for touch devices.
-- **Universal Compose & Android XML Transpiler**: Automatically transpile Jetpack Compose Kotlin code and Android XML layouts into native Material 3 applications.
+- **Universal Compose & Android XML Transpiler**: Transpiles Jetpack Compose Kotlin code and Android XML layouts into responsive Material 3 views with on-device APK packaging and full Android Studio / Gradle project export.
 - **In-Browser & Local Execution**: Run Python code directly on-device using Pyodide (Wasm) and preview HTML/CSS/JS in real-time.
 - **Integrated Gemini AI Assistant**: Built-in AI chat sidebar panel for code explanation, error fixing, test generation, and intelligent refactoring.
 - **Live Markdown Preview**: Split-pane GitHub Flavored Markdown preview with syntax highlighting.
@@ -47,7 +47,7 @@
 
 | Version | Download Link | File Size | Platform |
 | :--- | :--- | :--- | :--- |
-| **v1.0.8 (Latest - Universal Compose Transpiler, Persistent Signing & Native Android Engine)** | [**Download `PocketCode-IDE-v1.0.8.apk`**](https://github.com/Dark87714/pocketcode-ide/releases/download/v1.0.8/PocketCode-IDE-v1.0.8.apk) | ~185 MB | Android 7.0+ |
+| **v1.0.8 (Latest - Universal Compose Transpiler, Persistent Signing & APK Packaging)** | [**Download `PocketCode-IDE-v1.0.8.apk`**](https://github.com/Dark87714/pocketcode-ide/releases/download/v1.0.8/PocketCode-IDE-v1.0.8.apk) | ~185 MB | Android 7.0+ |
 | **v1.0.7** | [Download `PocketCode-IDE-v1.0.7.apk`](https://github.com/Dark87714/pocketcode-ide/releases/download/v1.0.7/PocketCode-IDE-v1.0.7.apk) | ~8.5 MB | Android 7.0+ |
 | **v1.0.6** | [Download `PocketCode-IDE-v1.0.6.apk`](https://github.com/Dark87714/pocketcode-ide/releases/download/v1.0.6/PocketCode-IDE-v1.0.6.apk) | ~8.2 MB | Android 7.0+ |
 | **v1.0.5** | [Download `PocketCode-IDE-v1.0.5.apk`](https://github.com/Dark87714/pocketcode-ide/releases/download/v1.0.5/PocketCode-IDE-v1.0.5.apk) | ~8.2 MB | Android 7.0+ |

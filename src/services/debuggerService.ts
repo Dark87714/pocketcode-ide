@@ -228,12 +228,13 @@ export class DebuggerService {
 
     const bpListStr = `[${activeBps.join(', ')}]`;
 
-    // Python Bdb interactive tracer harness
+    // Python Bdb interactive tracer harness with async Promise resolution
     const pyDebuggerScript = `
 import sys
 import bdb
 import json
 import js
+import asyncio
 
 class _PocketCodeDebugger(bdb.Bdb):
     def __init__(self, target_bps):
@@ -264,7 +265,7 @@ class _PocketCodeDebugger(bdb.Bdb):
             # Extract global variables
             globs = {}
             for k, v in list(frame.f_globals.items()):
-                if not k.startswith('__') and k not in ('sys', 'bdb', 'json', 'js', '_PocketCodeDebugger'):
+                if not k.startswith('__') and k not in ('sys', 'bdb', 'json', 'js', 'asyncio', '_PocketCodeDebugger'):
                     try:
                         globs[k] = {"val": repr(v), "type": type(v).__name__}
                     except Exception:
@@ -281,8 +282,8 @@ class _PocketCodeDebugger(bdb.Bdb):
                 })
                 curr = curr.f_back
 
-            # Call JavaScript async pause handler
-            action = js.window.__POCKETCODE_DEBUGGER_BRIDGE__.onPause(
+            # Call JavaScript async pause handler and await the resulting Promise
+            pause_promise = js.window.__POCKETCODE_DEBUGGER_BRIDGE__.onPause(
                 filename, 
                 lineno, 
                 func_name,
@@ -290,6 +291,12 @@ class _PocketCodeDebugger(bdb.Bdb):
                 json.dumps(globs),
                 json.dumps(stack_frames)
             )
+
+            try:
+                loop = asyncio.get_event_loop()
+                action = str(loop.run_until_complete(pause_promise))
+            except Exception:
+                action = 'continue'
 
             if action == 'step' or action == 'step_into':
                 self.set_step()
@@ -340,49 +347,15 @@ _run_debugged_code(${bpListStr})
     }
   }
 
-  // --- JavaScript Debugger Simulation Harness ---
+  // --- JavaScript Debugger Notice ---
 
   private async debugJavaScript(
     filePath: string,
-    code: string,
+    _code: string,
     onOutput: (line: string, type: 'stdout' | 'stderr' | 'system') => void
   ) {
-    const lines = code.split('\n');
-    const bps = new Set((this.breakpoints.get(filePath) || []).filter(b => b.enabled).map(b => b.lineNumber));
-
-    onOutput(`⚡ [Debug Engine] JavaScript runtime stepper initialized.`, 'system');
-
-    // Instrument line boundaries
-    for (let i = 0; i < lines.length; i++) {
-      const lineNum = i + 1;
-      const lineText = lines[i].trim();
-
-      if (bps.has(lineNum) && lineText && !lineText.startsWith('//') && !lineText.startsWith('/*')) {
-        const dummyLocals: Record<string, { val: string; type: string }> = {
-          currentLine: { val: `${lineNum}`, type: 'number' },
-          sourceSnippet: { val: JSON.stringify(lineText), type: 'string' },
-          scope: { val: 'Module Scope', type: 'object' }
-        };
-
-        const dummyFrames: StackFrame[] = [
-          { id: `frame_${lineNum}`, name: `(anonymous) [Line ${lineNum}]`, file: filePath, line: lineNum },
-          { id: 'frame_main', name: 'main()', file: filePath, line: 1 }
-        ];
-
-        const action = await this.handlePythonPause(
-          filePath,
-          lineNum,
-          'anonymous',
-          JSON.stringify(dummyLocals),
-          JSON.stringify({}),
-          JSON.stringify(dummyFrames)
-        );
-
-        if (action === 'stop') break;
-      }
-    }
-
-    onOutput(`✅ [Debug Engine] Execution finished.`, 'system');
+    onOutput(`ℹ️ [Debugger] JavaScript debugging currently supports visual breakpoint markers only (step-execution is supported for Python via Pyodide WASM).`, 'system');
+    onOutput(`💡 To run JavaScript or TypeScript, use Live Preview (Alt+R) or Web Preview.`, 'system');
     this.cleanupSession();
   }
 

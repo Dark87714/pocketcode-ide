@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { X, MessageSquare, Send } from 'lucide-react';
 
 interface FeedbackModalProps {
@@ -10,12 +10,26 @@ export const FeedbackModal: React.FC<FeedbackModalProps> = ({ isOpen, onClose })
   const [feedback, setFeedback] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
+  const timerRef = useRef<any>(null);
+
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) clearTimeout(timerRef.current);
+    };
+  }, []);
 
   if (!isOpen) return null;
+
+  const accessKey = (import.meta as any).env?.VITE_WEB3FORMS_ACCESS_KEY || '';
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!feedback.trim()) return;
+
+    if (!accessKey) {
+      alert('Feedback service is not configured (missing VITE_WEB3FORMS_ACCESS_KEY in environment).');
+      return;
+    }
     
     setIsSubmitting(true);
     
@@ -27,7 +41,7 @@ export const FeedbackModal: React.FC<FeedbackModalProps> = ({ isOpen, onClose })
           Accept: 'application/json',
         },
         body: JSON.stringify({
-          access_key: '66bb2317-dd63-48a7-8f22-93de0c88e069',
+          access_key: accessKey,
           subject: 'New Feedback from PocketCode IDE',
           message: feedback,
         }),
@@ -36,19 +50,18 @@ export const FeedbackModal: React.FC<FeedbackModalProps> = ({ isOpen, onClose })
       const json = await response.json();
       
       if (response.status === 200) {
-        console.log('Feedback submitted via Web3Forms');
         setSubmitted(true);
-        setTimeout(() => {
+        timerRef.current = setTimeout(() => {
           setSubmitted(false);
           setFeedback('');
           onClose();
         }, 2000);
       } else {
-        throw new Error(json.message);
+        throw new Error(json.message || 'Submission failed');
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Failed to send feedback:', error);
-      alert('Failed to send feedback. Check the console for more details.');
+      alert(`Failed to send feedback: ${error.message || 'Check console for details'}`);
     } finally {
       setIsSubmitting(false);
     }

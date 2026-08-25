@@ -128,6 +128,13 @@ export function App() {
   const autoSaveTimerRef = useRef<any>(null);
   const sessionReadyRef = useRef<boolean>(false);
 
+  // Cleanup auto-save timer on unmount
+  useEffect(() => {
+    return () => {
+      if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+    };
+  }, []);
+
   // Resize listener for responsive layout
   useEffect(() => {
     const handleResize = () => {
@@ -152,7 +159,7 @@ export function App() {
         const savedSettings = localStorage.getItem('pocketcode_settings_v3');
         if (savedSettings) {
           const parsed = JSON.parse(savedSettings);
-          setSettings(parsed);
+          setSettings({ ...DEFAULT_SETTINGS, ...parsed });
           if (parsed.theme) {
             themeService.setTheme(parsed.theme);
           }
@@ -415,10 +422,15 @@ export function App() {
   const saveActiveFile = async () => {
     if (!activeFile) return;
     setSaveStatus('saving');
-    fileSystemService.updateFileContent(activeFile.id, activeFile.content);
-    await fileSystemService.saveWorkspace();
-    setSaveStatus('saved');
-    setTabs(prev => prev.map(t => t.fileId === activeFile.id ? { ...t, isModified: false } : t));
+    try {
+      fileSystemService.updateFileContent(activeFile.id, activeFile.content);
+      await fileSystemService.saveWorkspace(true);
+      setSaveStatus('saved');
+      setTabs(prev => prev.map(t => t.fileId === activeFile.id ? { ...t, isModified: false } : t));
+    } catch (err) {
+      console.error('Failed to save file:', err);
+      setSaveStatus('saved');
+    }
   };
 
   const handleEditorChange = (newContent: string) => {
@@ -435,19 +447,46 @@ export function App() {
     if (settings.autoSave) {
       setSaveStatus('saving');
       if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+      const delay = settings.autoSaveDelay ?? 1000;
       autoSaveTimerRef.current = setTimeout(async () => {
-        await fileSystemService.saveWorkspace();
-        setSaveStatus('saved');
-        setTabs(prev => prev.map(t => t.id === currentTabId ? { ...t, isModified: false } : t));
-      }, 350);
+        try {
+          await fileSystemService.saveWorkspace();
+          setSaveStatus('saved');
+          setTabs(prev => prev.map(t => t.id === currentTabId ? { ...t, isModified: false } : t));
+        } catch (err) {
+          console.error('AutoSave failed:', err);
+          setSaveStatus('saved');
+        }
+      }, delay);
     }
   };
 
   const handleSplitEditorChange = (newContent: string) => {
     if (!splitActiveTab || !splitActiveFile) return;
-    setFiles(prev => updateContentInTree(prev, splitActiveTab.fileId, newContent));
-    fileSystemService.updateFileContent(splitActiveTab.fileId, newContent);
-    setTabs(prev => prev.map(t => t.id === splitActiveTabId ? { ...t, isModified: true } : t));
+
+    const currentTabId = splitActiveTabId;
+    const currentFileId = splitActiveTab.fileId;
+
+    setFiles(prev => updateContentInTree(prev, currentFileId, newContent));
+    fileSystemService.updateFileContent(currentFileId, newContent);
+
+    setTabs(prev => prev.map(t => t.id === currentTabId ? { ...t, isModified: true } : t));
+
+    if (settings.autoSave) {
+      setSaveStatus('saving');
+      if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+      const delay = settings.autoSaveDelay ?? 1000;
+      autoSaveTimerRef.current = setTimeout(async () => {
+        try {
+          await fileSystemService.saveWorkspace();
+          setSaveStatus('saved');
+          setTabs(prev => prev.map(t => t.id === currentTabId ? { ...t, isModified: false } : t));
+        } catch (err) {
+          console.error('AutoSave failed:', err);
+          setSaveStatus('saved');
+        }
+      }, delay);
+    }
   };
 
   const handleCreateFile = async (name: string, isFolder = false, targetFolderId: string | null = null) => {
@@ -731,23 +770,24 @@ export function App() {
     setActiveBottomTab('output');
     setOutputLogs([`[Running] ${activeFile.name} ...`]);
 
-    let cmd = `run "${activeFile.path}"`;
+    const filePath = activeFile.path || activeFile.name;
+    let cmd = `run "${filePath}"`;
     if (lang === 'python' || ext === 'py') {
-      cmd = `python "${activeFile.path}"`;
+      cmd = `python "${filePath}"`;
     } else if (lang === 'javascript' || lang === 'typescript' || ext === 'js' || ext === 'ts' || ext === 'mjs') {
-      cmd = `node "${activeFile.path}"`;
+      cmd = `node "${filePath}"`;
     } else if (lang === 'sql' || ext === 'sql') {
       cmd = `sql ${activeFile.content.replace(/\n/g, ' ')}`;
     } else if (lang === 'cpp' || lang === 'c' || ext === 'cpp' || ext === 'c' || ext === 'cc') {
-      cmd = `g++ "${activeFile.path}"`;
+      cmd = `g++ "${filePath}"`;
     } else if (lang === 'rust' || ext === 'rs') {
-      cmd = `rustc "${activeFile.path}"`;
+      cmd = `rustc "${filePath}"`;
     } else if (lang === 'go' || ext === 'go') {
-      cmd = `go run "${activeFile.path}"`;
+      cmd = `go run "${filePath}"`;
     } else if (lang === 'java' || ext === 'java') {
-      cmd = `java "${activeFile.path}"`;
+      cmd = `java "${filePath}"`;
     } else if (lang === 'shell' || lang === 'bash' || ext === 'sh' || ext === 'bash') {
-      cmd = `bash "${activeFile.path}"`;
+      cmd = `bash "${filePath}"`;
     }
 
     // Also mirror to terminal
@@ -766,9 +806,9 @@ export function App() {
           prefix = isWarning ? '⚠️ ' : '❌ ';
         }
       } else if (type === 'system') {
-        if (!line.startsWith('⚡') && !line.startsWith('🚀') && !line.startsWith('📄') && !line.startsWith('✅') && !line.startsWith('✨')) {
-          prefix = '⚡ ';
-        }
+        prefix = 'ℹ️ ';
+      } else if (type === 'stdout') {
+        prefix = '';
       }
       setOutputLogs(prev => [...prev, `${prefix}${line}`]);
     });
@@ -846,7 +886,7 @@ export function App() {
   };
 
   const handleReplaceAll = (findText: string, replaceText: string, matchCase: boolean, isRegex: boolean) => {
-    if (!activeFile) return;
+    if (!activeFile || !findText) return;
     try {
       const flag = matchCase ? 'g' : 'gi';
       const pattern = isRegex ? new RegExp(findText, flag) : new RegExp(findText.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), flag);

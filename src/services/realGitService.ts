@@ -367,34 +367,52 @@ export class RealGitService {
     }
 
     onProgress?.(`Pushing branch ${branch} to ${remote}...`);
-    await git.push({
-      fs: this.vfs.fs,
-      http,
-      dir: this.dir,
-      remote,
-      ref: branch,
-      corsProxy: this.corsProxy,
-      onAuth: () => ({ username: token })
-    });
-    onProgress?.(`✅ Push successful!`);
+    try {
+      const pushResult = await git.push({
+        fs: this.vfs.fs,
+        http,
+        dir: this.dir,
+        remote,
+        ref: branch,
+        corsProxy: this.corsProxy,
+        onAuth: () => ({ username: token, password: '' })
+      });
+
+      if (pushResult && pushResult.ok === false) {
+        throw new Error(pushResult.error || 'Push was rejected by remote repository');
+      }
+
+      onProgress?.(`✅ Push successful!`);
+      return pushResult;
+    } catch (err: any) {
+      onProgress?.(`❌ Push failed: ${err.message}`);
+      throw err;
+    }
   }
 
   async pull(remote: string = 'origin', branch: string = 'main', onProgress?: (msg: string) => void) {
+    const token = await this.getGitHubToken();
     onProgress?.(`Pulling updates from ${remote}/${branch}...`);
-    await git.pull({
-      fs: this.vfs.fs,
-      http,
-      dir: this.dir,
-      remote,
-      ref: branch,
-      singleBranch: true,
-      corsProxy: this.corsProxy,
-      author: this.author
-    });
-    this.vfs.syncToWorkspace();
-    fileSystemService.saveWorkspace();
-    this.emitChange();
-    onProgress?.(`✅ Pull completed successfully!`);
+    try {
+      await git.pull({
+        fs: this.vfs.fs,
+        http,
+        dir: this.dir,
+        remote,
+        ref: branch,
+        singleBranch: true,
+        corsProxy: this.corsProxy,
+        author: this.author,
+        onAuth: token ? () => ({ username: token, password: '' }) : undefined
+      });
+      this.vfs.syncToWorkspace();
+      fileSystemService.saveWorkspace();
+      this.emitChange();
+      onProgress?.(`✅ Pull completed successfully!`);
+    } catch (err: any) {
+      onProgress?.(`❌ Pull failed: ${err.message}`);
+      throw err;
+    }
   }
 
   // --- Git Blame Annotations ---

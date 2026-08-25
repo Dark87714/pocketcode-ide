@@ -1,4 +1,4 @@
-import { get, set } from 'idb-keyval';
+import { get, set, del } from 'idb-keyval';
 import JSZip from 'jszip';
 import { FileItem, ProjectTemplate, ProjectMetadata } from '../types';
 import { PROJECT_TEMPLATES } from './templates';
@@ -441,7 +441,7 @@ export class FileSystemService {
       const projects = await this.listProjects();
       const filtered = projects.filter(p => p.id !== projectId);
       await set(PROJECTS_INDEX_KEY, filtered);
-      await set(`${STORAGE_KEY}_${projectId}`, null);
+      await del(`${STORAGE_KEY}_${projectId}`);
       localStorage.removeItem(`${BACKUP_STORAGE_KEY}_${projectId}`);
       localStorage.removeItem(`${ACTIVE_PROJECT_NAME_KEY}_${projectId}`);
 
@@ -456,7 +456,7 @@ export class FileSystemService {
   }
 
   /**
-   * Clone a public GitHub repository
+   * Clone a public GitHub repository using zipball API or tree API
    */
   async cloneGitRepository(
     repoUrl: string,
@@ -473,90 +473,176 @@ export class FileSystemService {
     const repo = match[2];
     const projectName = repo;
 
-    onProgress?.(`Fetching directory tree for ${owner}/${repo}...`);
-    // Try main branch first, then master
-    let treeData: any = null;
+    onProgress?.(`Resolving repository metadata for ${owner}/${repo}...`);
+    let defaultBranch = 'main';
     try {
-      const res = await fetch(`https://api.github.com/repos/${owner}/${repo}/git/trees/main?recursive=1`);
-      if (res.ok) {
-        treeData = await res.json();
-      } else {
-        const res2 = await fetch(`https://api.github.com/repos/${owner}/${repo}/git/trees/master?recursive=1`);
-        if (res2.ok) {
-          treeData = await res2.json();
+      const repoInfoRes = await fetch(`https://api.github.com/repos/${owner}/${repo}`);
+      if (repoInfoRes.ok) {
+        const repoInfo = await repoInfoRes.json();
+        if (repoInfo.default_branch) {
+          defaultBranch = repoInfo.default_branch;
         }
       }
-    } catch (err: any) {
-      throw new Error(`Failed to connect to GitHub API: ${err.message}`);
-    }
+    } catch {}
 
-    if (!treeData || !treeData.tree || !Array.isArray(treeData.tree)) {
-      throw new Error(`Could not load files from ${owner}/${repo}. Check if repo is public.`);
-    }
-
-    const blobNodes = treeData.tree.filter((node: any) => node.type === 'blob');
-    if (blobNodes.length > 30) {
-      onProgress?.(`⚠️ Large repository (${blobNodes.length} files). Fetching first 30 files...`);
-    } else {
-      onProgress?.(`Downloading ${blobNodes.length} files from repository...`);
-    }
+    onProgress?.(`Downloading repository archive (${defaultBranch} branch)...`);
     const newRoot: FileItem[] = [];
-    const filesToFetch = blobNodes.slice(0, 30);
 
-    for (let i = 0; i < filesToFetch.length; i++) {
-      const node = filesToFetch[i];
-      const filePath = node.path;
-      onProgress?.(`Downloading [${i + 1}/${filesToFetch.length}] ${filePath}...`);
+    let clonedViaZip = false;
+    try {
+      const zipRes = await fetch(`https://api.github.com/repos/${owner}/${repo}/zipball/${defaultBranch}`);
+      if (zipRes.ok) {
+        const zipBlob = await zipRes.blob();
+        const zip = new JSZip();
+        const zipContents = await zip.loadAsync(zipBlob);
+        
+        // Find the root folder name inside zip (e.g. owner-repo-hash/)
+        const entries = Object.keys(zipContents.files);
+        const rootDirPrefix = entries.find(e => e.includes('/'))?.split('/')[0] || '';
+        
+        onProgress?.(`Extracting repository files...`);
+        for (const filename of entries) {
+          const zipEntry = zipContents.files[filename];
+          if (zipEntry.dir) continue;
+          
+          let relativePath = filename;
+          if (rootDirPrefix && relativePath.startsWith(`${rootDirPrefix}/`)) {
+            relativePath = relativePath.substring(rootDirPrefix.length + 1);
+          }
+          if (!relativePath) continue;
 
-      let fileContent = '';
-      try {
-        const rawRes = await fetch(`https://raw.githubusercontent.com/${owner}/${repo}/HEAD/${filePath}`);
-        if (rawRes.ok) {
-          fileContent = await rawRes.text();
+          const content = await zipEntry.async('string');
+          const parts = relativePath.split('/').filter(Boolean);
+          let currentChildren = newRoot;
+          let currentPath = '';
+
+          for (let p = 0; p < parts.length; p++) {
+            const part = parts[p];
+            const isLast = p === parts.length - 1;
+            currentPath = currentPath ? `${currentPath}/${part}` : part;
+
+            if (isLast) {
+              currentChildren.push({
+                id: `file_${currentPath.replace(/[^a-zA-Z0-9_-]/g, '_')}`,
+                name: part,
+                path: currentPath,
+                content,
+                language: getLanguageFromFilename(part),
+                isFolder: false
+              });
+            } else {
+              let folder = currentChildren.find(item => item.isFolder && item.name === part);
+              if (!folder) {
+                folder = {
+                  id: `folder_${currentPath.replace(/[^a-zA-Z0-9_-]/g, '_')}`,
+                  name: part,
+                  path: currentPath,
+                  content: '',
+                  language: '',
+                  isFolder: true,
+                  isExpanded: true,
+                  children: []
+                };
+                currentChildren.push(folder);
+              }
+              if (!folder.children) folder.children = [];
+              currentChildren = folder.children;
+            }
+          }
         }
-      } catch (e) {}
+        clonedViaZip = newRoot.length > 0;
+      }
+    } catch (e) {
+      console.warn('Zipball clone failed, falling back to Git tree API:', e);
+    }
 
-      // Add to tree hierarchy
-      const parts = filePath.split('/').filter(Boolean);
-      let currentChildren = newRoot;
-      let currentPath = '';
-
-      for (let p = 0; p < parts.length; p++) {
-        const part = parts[p];
-        const isLast = p === parts.length - 1;
-        currentPath = currentPath ? `${currentPath}/${part}` : part;
-
-        if (isLast) {
-          currentChildren.push({
-            id: `file_${currentPath.replace(/[^a-zA-Z0-9_-]/g, '_')}`,
-            name: part,
-            path: currentPath,
-            content: fileContent,
-            language: getLanguageFromFilename(part),
-            isFolder: false
-          });
+    // Fallback: Git tree API if zipball fetch was not available
+    if (!clonedViaZip) {
+      onProgress?.(`Fetching directory tree for ${owner}/${repo}...`);
+      let treeData: any = null;
+      try {
+        const res = await fetch(`https://api.github.com/repos/${owner}/${repo}/git/trees/${defaultBranch}?recursive=1`);
+        if (res.ok) {
+          treeData = await res.json();
         } else {
-          let folder = currentChildren.find(item => item.isFolder && item.name === part);
-          if (!folder) {
-            folder = {
-              id: `folder_${currentPath.replace(/[^a-zA-Z0-9_-]/g, '_')}`,
+          const res2 = await fetch(`https://api.github.com/repos/${owner}/${repo}/git/trees/master?recursive=1`);
+          if (res2.ok) {
+            treeData = await res2.json();
+            defaultBranch = 'master';
+          }
+        }
+      } catch (err: any) {
+        throw new Error(`Failed to connect to GitHub API: ${err.message}`);
+      }
+
+      if (!treeData || !treeData.tree || !Array.isArray(treeData.tree)) {
+        throw new Error(`Could not load files from ${owner}/${repo}. Check if repo is public.`);
+      }
+
+      const blobNodes = treeData.tree.filter((node: any) => node.type === 'blob');
+      const filesToFetch = blobNodes.slice(0, 100);
+      onProgress?.(`Downloading ${filesToFetch.length} files from repository...`);
+
+      for (let i = 0; i < filesToFetch.length; i++) {
+        const node = filesToFetch[i];
+        const filePath = node.path;
+        onProgress?.(`Downloading [${i + 1}/${filesToFetch.length}] ${filePath}...`);
+
+        let fileContent: string | null = null;
+        try {
+          const rawRes = await fetch(`https://raw.githubusercontent.com/${owner}/${repo}/${defaultBranch}/${filePath}`);
+          if (rawRes.ok) {
+            fileContent = await rawRes.text();
+          }
+        } catch (e) {}
+
+        // Only add file if fetch succeeded (never create empty files on failed fetch)
+        if (fileContent === null) continue;
+
+        const parts = filePath.split('/').filter(Boolean);
+        let currentChildren = newRoot;
+        let currentPath = '';
+
+        for (let p = 0; p < parts.length; p++) {
+          const part = parts[p];
+          const isLast = p === parts.length - 1;
+          currentPath = currentPath ? `${currentPath}/${part}` : part;
+
+          if (isLast) {
+            currentChildren.push({
+              id: `file_${currentPath.replace(/[^a-zA-Z0-9_-]/g, '_')}`,
               name: part,
               path: currentPath,
-              content: '',
-              language: '',
-              isFolder: true,
-              isExpanded: true,
-              children: []
-            };
-            currentChildren.push(folder);
+              content: fileContent,
+              language: getLanguageFromFilename(part),
+              isFolder: false
+            });
+          } else {
+            let folder = currentChildren.find(item => item.isFolder && item.name === part);
+            if (!folder) {
+              folder = {
+                id: `folder_${currentPath.replace(/[^a-zA-Z0-9_-]/g, '_')}`,
+                name: part,
+                path: currentPath,
+                content: '',
+                language: '',
+                isFolder: true,
+                isExpanded: true,
+                children: []
+              };
+              currentChildren.push(folder);
+            }
+            if (!folder.children) folder.children = [];
+            currentChildren = folder.children;
           }
-          if (!folder.children) folder.children = [];
-          currentChildren = folder.children;
         }
       }
     }
 
-    await this.saveWorkspace(true);
+    if (newRoot.length === 0) {
+      throw new Error(`Failed to clone repository files from ${owner}/${repo}.`);
+    }
+
     const projectId = `proj_gh_${Date.now()}`;
     this.currentProjectId = projectId;
     this.currentProjectName = projectName;
@@ -585,6 +671,8 @@ export class FileSystemService {
   }
 
   private saveTimeout: any = null;
+  private pendingSavePromise: Promise<void> | null = null;
+  private pendingSaveResolver: (() => void) | null = null;
 
   async saveWorkspace(immediate: boolean = false): Promise<void> {
     const targetProjectId = this.currentProjectId;
@@ -607,13 +695,35 @@ export class FileSystemService {
         this.saveTimeout = null;
       }
       await doSave();
-    } else {
-      if (this.saveTimeout) clearTimeout(this.saveTimeout);
-      this.saveTimeout = setTimeout(() => {
-        this.saveTimeout = null;
-        doSave();
-      }, 50);
+      if (this.pendingSaveResolver) {
+        this.pendingSaveResolver();
+        this.pendingSaveResolver = null;
+        this.pendingSavePromise = null;
+      }
+      return;
     }
+
+    if (this.saveTimeout) clearTimeout(this.saveTimeout);
+
+    if (!this.pendingSavePromise) {
+      this.pendingSavePromise = new Promise<void>((resolve) => {
+        this.pendingSaveResolver = resolve;
+      });
+    }
+
+    const currentPromise = this.pendingSavePromise;
+
+    this.saveTimeout = setTimeout(async () => {
+      this.saveTimeout = null;
+      await doSave();
+      if (this.pendingSaveResolver) {
+        this.pendingSaveResolver();
+        this.pendingSaveResolver = null;
+        this.pendingSavePromise = null;
+      }
+    }, 50);
+
+    return currentPromise;
   }
 
   saveToLocalStorage(): void {
@@ -1005,8 +1115,11 @@ export class FileSystemService {
 
     for (const [relativePath, zipEntry] of Object.entries(contents.files)) {
       if (!zipEntry.dir) {
+        // Sanitize path to prevent Zip Slip / Traversal
+        const cleanPath = relativePath.replace(/[\\]/g, '/').replace(/^\/+/, '');
+        const parts = cleanPath.split('/').filter(p => p && p !== '..' && p !== '.');
+        if (parts.length === 0) continue;
         const text = await zipEntry.async('string');
-        const parts = relativePath.split('/').filter(Boolean);
         let currentChildren = newRoot;
         let currentPath = '';
 

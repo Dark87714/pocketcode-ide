@@ -290,7 +290,11 @@ export class WebPreviewService {
     );
 
     if (!isEduProject) {
-      return composeTranspilerService.transpileProject(flatFiles, analysis, isAppBundle);
+      try {
+        return composeTranspilerService.transpileProject(flatFiles, analysis, isAppBundle);
+      } catch (err: any) {
+        return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Transpiler Error</title></head><body style="background:#1e1e1e;color:#f87171;font-family:sans-serif;padding:24px;"><h3 style="margin-bottom:8px;">⚠️ Android Compose Transpilation Notice</h3><p style="color:#cccccc;font-size:13px;margin-bottom:12px;">Could not fully transpile Compose UI components.</p><pre style="background:#141416;padding:12px;border-radius:6px;font-size:12px;color:#fca5a5;overflow-x:auto;">${err?.message || err}</pre></body></html>`;
+      }
     }
 
     return `<!DOCTYPE html>

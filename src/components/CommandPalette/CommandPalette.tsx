@@ -96,7 +96,10 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
       category: 'Project',
       icon: <FolderPlus size={14} className="text-sky-400" />,
       shortcut: 'Ctrl+Shift+N',
-      action: () => onOpenNewProject?.() || onOpenTemplates()
+      action: () => {
+        if (onOpenNewProject) onOpenNewProject();
+        else onOpenTemplates();
+      }
     },
     {
       id: 'cmd_format',

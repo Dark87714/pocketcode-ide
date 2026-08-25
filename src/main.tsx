@@ -8,3 +8,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
     <App />
   </React.StrictMode>,
 );
+
+// Remove initial HTML splash skeleton once React hydrates
+document.getElementById('pocketcode-splash')?.remove();
+

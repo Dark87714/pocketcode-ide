@@ -55,61 +55,65 @@ export class APKBuilderService {
           }
         }
 
-        // Patch AndroidManifest.xml binary package name so it installs as an independent app
+        // Patch AndroidManifest.xml binary package name if length matches exactly (UTF-16 length-safe in-place patch)
         // NOTE: We replace com.pocketcode.ide for package/permissions/authorities, but KEEP .MainActivity intact so Android finds the Java class in DEX!
         const manifestFile = zip.file('AndroidManifest.xml');
         if (manifestFile) {
           const manifestBytes = await manifestFile.async('uint8array');
-          const oldPkg = 'com.pocketcode.ide';
-          const newPkg = 'com.pocketcode.app';
+          const oldPkg = 'com.pocketcode.ide'; // length 18
+          const targetPkg = packageName;
           
-          const oldBuf = new Uint8Array(oldPkg.length * 2);
-          for (let i = 0; i < oldPkg.length; i++) {
-            const code = oldPkg.charCodeAt(i);
-            oldBuf[i * 2] = code & 0xff;
-            oldBuf[i * 2 + 1] = (code >> 8) & 0xff;
-          }
-
-          const newBuf = new Uint8Array(newPkg.length * 2);
-          for (let i = 0; i < newPkg.length; i++) {
-            const code = newPkg.charCodeAt(i);
-            newBuf[i * 2] = code & 0xff;
-            newBuf[i * 2 + 1] = (code >> 8) & 0xff;
-          }
-
-          const mainActivitySuffix = '.MainActivity';
-          const mainActivityBuf = new Uint8Array(mainActivitySuffix.length * 2);
-          for (let i = 0; i < mainActivitySuffix.length; i++) {
-            const code = mainActivitySuffix.charCodeAt(i);
-            mainActivityBuf[i * 2] = code & 0xff;
-            mainActivityBuf[i * 2 + 1] = (code >> 8) & 0xff;
-          }
-
-          for (let i = 0; i <= manifestBytes.length - oldBuf.length; i++) {
-            let match = true;
-            for (let j = 0; j < oldBuf.length; j++) {
-              if (manifestBytes[i + j] !== oldBuf[j]) {
-                match = false;
-                break;
-              }
+          if (targetPkg.length === oldPkg.length) {
+            const oldBuf = new Uint8Array(oldPkg.length * 2);
+            for (let i = 0; i < oldPkg.length; i++) {
+              const code = oldPkg.charCodeAt(i);
+              oldBuf[i * 2] = code & 0xff;
+              oldBuf[i * 2 + 1] = (code >> 8) & 0xff;
             }
-            if (match) {
-              // Check if followed by .MainActivity (must NOT replace class name, DEX holds com.pocketcode.ide.MainActivity)
-              let isMainActivity = true;
-              for (let k = 0; k < mainActivityBuf.length; k++) {
-                if (manifestBytes[i + oldBuf.length + k] !== mainActivityBuf[k]) {
-                  isMainActivity = false;
+
+            const newBuf = new Uint8Array(targetPkg.length * 2);
+            for (let i = 0; i < targetPkg.length; i++) {
+              const code = targetPkg.charCodeAt(i);
+              newBuf[i * 2] = code & 0xff;
+              newBuf[i * 2 + 1] = (code >> 8) & 0xff;
+            }
+
+            const mainActivitySuffix = '.MainActivity';
+            const mainActivityBuf = new Uint8Array(mainActivitySuffix.length * 2);
+            for (let i = 0; i < mainActivitySuffix.length; i++) {
+              const code = mainActivitySuffix.charCodeAt(i);
+              mainActivityBuf[i * 2] = code & 0xff;
+              mainActivityBuf[i * 2 + 1] = (code >> 8) & 0xff;
+            }
+
+            for (let i = 0; i <= manifestBytes.length - oldBuf.length; i++) {
+              let match = true;
+              for (let j = 0; j < oldBuf.length; j++) {
+                if (manifestBytes[i + j] !== oldBuf[j]) {
+                  match = false;
                   break;
                 }
               }
+              if (match) {
+                // Check if followed by .MainActivity (must NOT replace class name, DEX holds com.pocketcode.ide.MainActivity)
+                let isMainActivity = true;
+                for (let k = 0; k < mainActivityBuf.length; k++) {
+                  if (manifestBytes[i + oldBuf.length + k] !== mainActivityBuf[k]) {
+                    isMainActivity = false;
+                    break;
+                  }
+                }
 
-              if (!isMainActivity) {
-                manifestBytes.set(newBuf, i);
+                if (!isMainActivity) {
+                  manifestBytes.set(newBuf, i);
+                }
+                i += oldBuf.length - 1;
               }
-              i += oldBuf.length - 1;
             }
+            zip.file('AndroidManifest.xml', manifestBytes);
+          } else {
+            onProgress(`[Notice] Binary AXML package rename skipped (package '${targetPkg}' length ${targetPkg.length} != template length ${oldPkg.length}). Use Export Android Project for custom package IDs.`, 'output');
           }
-          zip.file('AndroidManifest.xml', manifestBytes);
         }
 
         onProgress(`[3/5] Bundling and compiling your real project files for Android WebView...`, 'output');
@@ -242,10 +246,15 @@ export class APKBuilderService {
 
         return { success: true, apkName: apkFilename };
       } else {
-        // Fallback to generating the complete native Android Gradle source package
-        onProgress(`[3/5] Template not reachable directly, generating complete Native Gradle bundle...`, 'output');
+        // Fallback: template APK not available, export Gradle project ZIP instead
+        onProgress(`[3/5] Base APK template (/templates/base-template.apk) not available. Generating complete Native Gradle source project instead...`, 'output');
         await this.exportAndroidStudioProject(onProgress);
-        return { success: true, apkName: `${cleanName}-android-project.zip` };
+        onProgress(`\n⚠️ APK binary could not be packaged because base-template.apk is unavailable. Exported Gradle source ZIP (${cleanName}-android-project.zip) instead.`, 'error');
+        return {
+          success: false,
+          error: 'Base APK template unavailable; exported Gradle source ZIP instead',
+          apkName: `${cleanName}-android-project.zip`
+        };
       }
     } catch (err: any) {
       onProgress(`\n❌ APK Build Failed: ${err.message}`, 'error');
