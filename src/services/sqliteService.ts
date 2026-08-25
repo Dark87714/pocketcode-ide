@@ -17,6 +17,47 @@ export interface TableInfo {
   rowCount: number;
 }
 
+/**
+ * Safely split SQL into statements without breaking on semicolons inside strings or comments
+ */
+function splitSqlStatements(sql: string): string[] {
+  const statements: string[] = [];
+  let current = '';
+  let inSingleQuote = false;
+  let inDoubleQuote = false;
+  let inLineComment = false;
+  let inBlockComment = false;
+
+  for (let i = 0; i < sql.length; i++) {
+    const char = sql[i];
+    const nextChar = sql[i + 1];
+
+    if (!inSingleQuote && !inDoubleQuote && !inBlockComment && char === '-' && nextChar === '-') {
+      inLineComment = true;
+    } else if (inLineComment && (char === '\n' || char === '\r')) {
+      inLineComment = false;
+    } else if (!inSingleQuote && !inDoubleQuote && !inLineComment && char === '/' && nextChar === '*') {
+      inBlockComment = true;
+      i++;
+    } else if (inBlockComment && char === '*' && nextChar === '/') {
+      inBlockComment = false;
+      i++;
+      continue;
+    } else if (!inLineComment && !inBlockComment) {
+      if (char === "'" && !inDoubleQuote) inSingleQuote = !inSingleQuote;
+      else if (char === '"' && !inSingleQuote) inDoubleQuote = !inDoubleQuote;
+      else if (char === ';' && !inSingleQuote && !inDoubleQuote) {
+        if (current.trim()) statements.push(current.trim());
+        current = '';
+        continue;
+      }
+    }
+    current += char;
+  }
+  if (current.trim()) statements.push(current.trim());
+  return statements;
+}
+
 class SQLiteService {
   private initialized = false;
   private initPromise: Promise<void> | null = null;
@@ -57,7 +98,11 @@ class SQLiteService {
       };
     }
 
-    const statements = sql.trim().split(';').map(s => s.trim()).filter(Boolean);
+    const statements = splitSqlStatements(sql.trim());
+    if (statements.length === 0) {
+      return { columns: [], rows: [], executionTimeMs: 0 };
+    }
+
     let lastResult: QueryResult = { columns: [], rows: [], executionTimeMs: 0 };
 
     for (const stmt of statements) {

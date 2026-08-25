@@ -63,12 +63,16 @@ export const Explorer: React.FC<ExplorerProps> = ({
   const createInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
+    let timeoutId: NodeJS.Timeout | undefined;
     if (isCreatingFile) {
-      setTimeout(() => {
+      timeoutId = setTimeout(() => {
         createInputRef.current?.focus();
         createInputRef.current?.select();
       }, 20);
     }
+    return () => {
+      if (timeoutId) clearTimeout(timeoutId);
+    };
   }, [isCreatingFile, creatingTargetFolderId]);
 
   const startCreate = (isFolder: boolean, folderId: string | null = null) => {

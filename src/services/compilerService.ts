@@ -81,13 +81,25 @@ class CompilerService {
       throw new Error('Compiler endpoint must use HTTP or HTTPS');
     }
 
-    const hostname = parsed.hostname.toLowerCase();
-    if (
+    const hostname = parsed.hostname.toLowerCase().replace(/^\[|\]$/g, '');
+    const isBlockedHost =
+      hostname === 'localhost' ||
+      hostname === '127.0.0.1' ||
+      hostname === '0.0.0.0' ||
+      hostname === '::1' ||
       hostname === '169.254.169.254' ||
       hostname === 'metadata.google.internal' ||
-      hostname === 'instance-data'
-    ) {
-      throw new Error('Target endpoint is blocked by security firewall');
+      hostname === 'instance-data' ||
+      hostname.endsWith('.internal') ||
+      hostname.endsWith('.local') ||
+      /^10\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(hostname) ||
+      /^172\.(1[6-9]|2\d|3[0-1])\.\d{1,3}\.\d{1,3}$/.test(hostname) ||
+      /^192\.168\.\d{1,3}\.\d{1,3}$/.test(hostname) ||
+      /^169\.254\.\d{1,3}\.\d{1,3}$/.test(hostname) ||
+      /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(hostname);
+
+    if (isBlockedHost) {
+      throw new Error('Target endpoint is blocked by SSRF / security firewall');
     }
 
     this.endpoint = cleanUrl;

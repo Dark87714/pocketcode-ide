@@ -243,24 +243,34 @@ export class WebPreviewService {
       }
     });
 
-    // Fallback: If CSS or JS was not explicitly replaced, inline unlinked styles and scripts
-    const unlinkedCss = flatFiles.filter(f => f.name.endsWith('.css') && !linkedPaths.has(f.path));
-    if (unlinkedCss.length > 0) {
-      const stylesToInject = unlinkedCss.map(c => `/* ${c.name} */\n${this.escapeStyleContent(c.content)}`).join('\n\n');
-      if (combinedHtml.includes('</head>')) {
-        combinedHtml = combinedHtml.replace('</head>', `<style>\n${stylesToInject}\n</style>\n</head>`);
-      } else {
-        combinedHtml = `<style>\n${stylesToInject}\n</style>\n` + combinedHtml;
+    // Fallback: If no CSS or JS was explicitly linked, check for single or conventional entry files
+    const hasLinkedCss = flatFiles.some(f => f.name.endsWith('.css') && linkedPaths.has(f.path));
+    if (!hasLinkedCss) {
+      const cssFiles = flatFiles.filter(f => f.name.endsWith('.css'));
+      const candidateCss = cssFiles.find(f => /^(style|index|main|app)\.css$/i.test(f.name)) || (cssFiles.length === 1 ? cssFiles[0] : null);
+      if (candidateCss) {
+        linkedPaths.add(candidateCss.path);
+        const styleToInject = `/* [Auto-linked: ${candidateCss.name}] */\n${this.escapeStyleContent(candidateCss.content)}`;
+        if (combinedHtml.includes('</head>')) {
+          combinedHtml = combinedHtml.replace('</head>', `<style>\n${styleToInject}\n</style>\n</head>`);
+        } else {
+          combinedHtml = `<style>\n${styleToInject}\n</style>\n` + combinedHtml;
+        }
       }
     }
 
-    const unlinkedJs = flatFiles.filter(f => (f.name.endsWith('.js') || f.name.endsWith('.ts')) && !linkedPaths.has(f.path));
-    if (unlinkedJs.length > 0) {
-      const scriptsToInject = unlinkedJs.map(s => `// ${s.name}\n${this.escapeScriptContent(s.content)}`).join('\n\n');
-      if (combinedHtml.includes('</body>')) {
-        combinedHtml = combinedHtml.replace('</body>', `<script>\n${scriptsToInject}\n</script>\n</body>`);
-      } else {
-        combinedHtml = combinedHtml + `\n<script>\n${scriptsToInject}\n</script>`;
+    const hasLinkedJs = flatFiles.some(f => (f.name.endsWith('.js') || f.name.endsWith('.ts')) && linkedPaths.has(f.path));
+    if (!hasLinkedJs) {
+      const jsFiles = flatFiles.filter(f => f.name.endsWith('.js') || f.name.endsWith('.ts'));
+      const candidateJs = jsFiles.find(f => /^(main|index|app|script)\.(js|ts)$/i.test(f.name)) || (jsFiles.length === 1 ? jsFiles[0] : null);
+      if (candidateJs) {
+        linkedPaths.add(candidateJs.path);
+        const scriptToInject = `// [Auto-linked: ${candidateJs.name}]\n${this.escapeScriptContent(candidateJs.content)}`;
+        if (combinedHtml.includes('</body>')) {
+          combinedHtml = combinedHtml.replace('</body>', `<script>\n${scriptToInject}\n</script>\n</body>`);
+        } else {
+          combinedHtml = combinedHtml + `\n<script>\n${scriptToInject}\n</script>`;
+        }
       }
     }
 

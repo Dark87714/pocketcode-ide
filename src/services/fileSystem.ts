@@ -394,7 +394,7 @@ export class FileSystemService {
   }
 
   /**
-   * Duplicate an existing project
+   * Duplicate an existing project with brand new unique IDs for all cloned files
    */
   async duplicateProject(projectId: string): Promise<{ projectId: string; files: FileItem[] }> {
     // Flush current project first
@@ -413,15 +413,33 @@ export class FileSystemService {
       sourceFiles = stored ? JSON.parse(JSON.stringify(stored)) : [];
     }
 
+    // Recursively regenerate file IDs so the duplicate project has unique keys and parent links
+    const reIdFiles = (nodes: FileItem[], parentId?: string): FileItem[] => {
+      return nodes.map(node => {
+        const newId = `file_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+        const cloned: FileItem = {
+          ...node,
+          id: newId,
+          ...(parentId ? { parentId } : {})
+        };
+        if (cloned.isFolder && Array.isArray(cloned.children)) {
+          cloned.children = reIdFiles(cloned.children, newId);
+        }
+        return cloned;
+      });
+    };
+
     const newProjectId = `proj_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
     this.currentProjectId = newProjectId;
     this.currentProjectName = newName;
-    this.files = sourceFiles;
+    this.files = reIdFiles(sourceFiles);
     try {
       localStorage.setItem(ACTIVE_PROJECT_ID_KEY, newProjectId);
       localStorage.setItem(ACTIVE_PROJECT_NAME_KEY, newName);
       localStorage.setItem(`${ACTIVE_PROJECT_NAME_KEY}_${newProjectId}`, newName);
-    } catch (e) {}
+    } catch (e) {
+      console.warn('[FileSystem] Failed to update project localStorage keys:', e);
+    }
 
     await this.saveWorkspace(true);
     await this.syncProjectsIndex();

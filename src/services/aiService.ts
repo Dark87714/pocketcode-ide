@@ -17,7 +17,11 @@ export interface AICodeAction {
 class AIService {
   private apiKey: string = '';
   private isLoaded: boolean = false;
-  private baseUrl = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
+  private modelName: string = 'gemini-1.5-flash';
+
+  private getEndpointUrl(model: string = this.modelName): string {
+    return `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
+  }
 
   async loadApiKey(): Promise<string> {
     if (this.isLoaded && this.apiKey) return this.apiKey;
@@ -30,7 +34,9 @@ class AIService {
         this.isLoaded = true;
         return stored;
       }
-    } catch {}
+    } catch (err) {
+      console.warn('[AIService] Failed to read API key from IndexedDB:', err);
+    }
 
     // 2. Migration: check legacy localStorage, migrate to IndexedDB, remove from localStorage
     try {
@@ -42,7 +48,9 @@ class AIService {
         localStorage.removeItem(GEMINI_KEY_STORE);
         return legacyKey;
       }
-    } catch {}
+    } catch (err) {
+      console.warn('[AIService] Failed to migrate API key from localStorage:', err);
+    }
 
     this.isLoaded = true;
     return '';
@@ -58,14 +66,16 @@ class AIService {
         await idbDel(GEMINI_KEY_STORE);
       }
       localStorage.removeItem(GEMINI_KEY_STORE);
-    } catch {}
+    } catch (err) {
+      console.error('[AIService] Failed to persist API key:', err);
+    }
   }
 
   hasApiKey(): boolean {
     return !!this.apiKey;
   }
 
-  private async callGemini(prompt: string, systemContext?: string): Promise<string> {
+  private async callGemini(prompt: string, systemContext?: string, timeoutMs: number = 30000): Promise<string> {
     const key = await this.loadApiKey();
     if (!key) throw new Error('No Gemini API key configured. Click the key icon to add yours.');
 
@@ -80,22 +90,35 @@ class AIService {
       generationConfig: { temperature: 0.7, maxOutputTokens: 2048 }
     };
 
-    const res = await fetch(this.baseUrl, {
-      method: 'POST',
-      headers: { 
-        'Content-Type': 'application/json',
-        'x-goog-api-key': key
-      },
-      body: JSON.stringify(body)
-    });
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err?.error?.message || `API error ${res.status}`);
+    try {
+      const res = await fetch(this.getEndpointUrl(), {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'x-goog-api-key': key
+        },
+        body: JSON.stringify(body),
+        signal: controller.signal
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err?.error?.message || `API error ${res.status}`);
+      }
+
+      const data = await res.json();
+      return data.candidates?.[0]?.content?.parts?.[0]?.text || '(No response)';
+    } catch (err: any) {
+      if (err.name === 'AbortError') {
+        throw new Error(`AI request timed out after ${timeoutMs / 1000}s. Please check your network.`);
+      }
+      throw err;
+    } finally {
+      clearTimeout(timeoutId);
     }
-
-    const data = await res.json();
-    return data.candidates?.[0]?.content?.parts?.[0]?.text || '(No response)';
   }
 
   async chat(messages: ChatMessage[], newMessage: string, fileContext?: string): Promise<string> {
