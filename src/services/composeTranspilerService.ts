@@ -1,3 +1,4 @@
+import DOMPurify from 'dompurify';
 import { FileItem } from '../types';
 import { ProjectAnalysis } from './projectTypeDetector';
 
@@ -374,11 +375,14 @@ export class ComposeTranspilerService {
         if (ctMatch[1]) cardTexts.push(ctMatch[1]);
       }
       if (cardTexts.length > 0) {
+        const title = escapeHtml(cardTexts[0]);
+        const subtitle = cardTexts[1] ? escapeHtml(cardTexts[1]) : '';
+        const descs = cardTexts.slice(2).map(ct => `<div class="compose-desc">${escapeHtml(ct)}</div>`).join('');
         cards.push(`
-          <div class="compose-card clickable" onclick="alert('Selected: ${cardTexts[0]}')">
-            <div class="compose-title">${cardTexts[0]}</div>
-            ${cardTexts[1] ? `<div class="compose-subtitle">${cardTexts[1]}</div>` : ''}
-            ${cardTexts.slice(2).map(ct => `<div class="compose-desc">${ct}</div>`).join('')}
+          <div class="compose-card clickable">
+            <div class="compose-title">${title}</div>
+            ${subtitle ? `<div class="compose-subtitle">${subtitle}</div>` : ''}
+            ${descs}
           </div>
         `);
       }
@@ -388,16 +392,19 @@ export class ComposeTranspilerService {
 
     if (textfields.length > 0) {
       outputHtml += textfields.map(tf => `
-        <input type="text" class="compose-textfield" placeholder="${tf}..." />
+        <input type="text" class="compose-textfield" placeholder="${escapeHtml(tf)}..." />
       `).join('');
     }
 
     if (texts.length > 0 && cards.length === 0) {
+      const title = escapeHtml(texts[0]);
+      const subtitle = texts[1] ? escapeHtml(texts[1]) : '';
+      const descs = texts.slice(2).map(t => `<div class="compose-desc">${escapeHtml(t)}</div>`).join('');
       outputHtml += `
         <div class="compose-card">
-          <div class="compose-title">${texts[0]}</div>
-          ${texts[1] ? `<div class="compose-subtitle">${texts[1]}</div>` : ''}
-          ${texts.slice(2).map(t => `<div class="compose-desc">${t}</div>`).join('')}
+          <div class="compose-title">${title}</div>
+          ${subtitle ? `<div class="compose-subtitle">${subtitle}</div>` : ''}
+          ${descs}
         </div>
       `;
     }
@@ -408,12 +415,12 @@ export class ComposeTranspilerService {
 
     if (buttons.length > 0) {
       outputHtml += buttons.map(b => `
-        <button class="compose-btn" onclick="alert('Action: ${b}')">${b}</button>
+        <button class="compose-btn">${escapeHtml(b)}</button>
       `).join('');
     }
 
     outputHtml += '</div>';
-    return outputHtml;
+    return DOMPurify.sanitize(outputHtml);
   }
 
   /**
@@ -429,26 +436,26 @@ export class ComposeTranspilerService {
     // Parse TextViews
     const textMatches = xmlContent.matchAll(/<TextView[\s\S]*?android:text="([^"]+)"[\s\S]*?\/>/g);
     for (const m of textMatches) {
-      const text = this.resolveString(m[1], stringMap);
+      const text = escapeHtml(this.resolveString(m[1], stringMap));
       html += `<div class="compose-title">${text}</div>`;
     }
 
     // Parse Buttons
     const btnMatches = xmlContent.matchAll(/<Button[\s\S]*?android:text="([^"]+)"[\s\S]*?\/>/g);
     for (const m of btnMatches) {
-      const text = this.resolveString(m[1], stringMap);
-      html += `<button class="compose-btn" onclick="alert('${text}')">${text}</button>`;
+      const text = escapeHtml(this.resolveString(m[1], stringMap));
+      html += `<button class="compose-btn">${text}</button>`;
     }
 
     // Parse EditTexts
     const editMatches = xmlContent.matchAll(/<EditText[\s\S]*?android:hint="([^"]+)"[\s\S]*?\/>/g);
     for (const m of editMatches) {
-      const hint = this.resolveString(m[1], stringMap);
+      const hint = escapeHtml(this.resolveString(m[1], stringMap));
       html += `<input type="text" class="compose-textfield" placeholder="${hint}" />`;
     }
 
     html += '</div>';
-    return html;
+    return DOMPurify.sanitize(html);
   }
 
   private extractStrings(files: FileItem[]): Map<string, string> {

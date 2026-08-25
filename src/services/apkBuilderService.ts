@@ -166,8 +166,13 @@ export class APKBuilderService {
           canvas.width = 192; canvas.height = 192;
           const ctx = canvas.getContext('2d');
           if (ctx) {
-            // Draw vibrant background
-            ctx.fillStyle = '#' + Math.floor(Math.random()*16777215).toString(16).padStart(6, '0');
+            // Draw deterministic vibrant background based on project name hash
+            const palette = ['#6366f1', '#3b82f6', '#0ea5e9', '#10b981', '#f59e0b', '#ec4899', '#8b5cf6', '#14b8a6'];
+            let nameHash = 0;
+            for (let i = 0; i < projectName.length; i++) {
+              nameHash = (nameHash << 5) - nameHash + projectName.charCodeAt(i);
+            }
+            ctx.fillStyle = palette[Math.abs(nameHash) % palette.length];
             ctx.beginPath(); ctx.arc(96, 96, 96, 0, Math.PI * 2); ctx.fill();
             // Draw bold project initial
             ctx.fillStyle = '#ffffff';

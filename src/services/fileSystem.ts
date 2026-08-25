@@ -273,7 +273,7 @@ export class FileSystemService {
     // Flush current project edits before switching to new project
     await this.saveWorkspace(true);
 
-    const projectId = `proj_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
+    const projectId = `proj_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
     const cleanName = name.trim() || 'New Project';
     this.currentProjectId = projectId;
     this.currentProjectName = cleanName;
@@ -281,7 +281,9 @@ export class FileSystemService {
       localStorage.setItem(ACTIVE_PROJECT_ID_KEY, projectId);
       localStorage.setItem(ACTIVE_PROJECT_NAME_KEY, cleanName);
       localStorage.setItem(`${ACTIVE_PROJECT_NAME_KEY}_${projectId}`, cleanName);
-    } catch (e) {}
+    } catch (e) {
+      console.warn('[FileSystem] Failed to persist project localStorage keys:', e);
+    }
 
     if (templateId) {
       const template = PROJECT_TEMPLATES.find(t => t.id === templateId) || PROJECT_TEMPLATES[0];
@@ -429,7 +431,7 @@ export class FileSystemService {
       });
     };
 
-    const newProjectId = `proj_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
+    const newProjectId = `proj_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
     this.currentProjectId = newProjectId;
     this.currentProjectName = newName;
     this.files = reIdFiles(sourceFiles);
@@ -676,7 +678,7 @@ export class FileSystemService {
   async createUntitledFile(customExtension = 'js'): Promise<FileItem> {
     const filename = `Untitled-${this.untitledCounter++}.${customExtension}`;
     const newFile: FileItem = {
-      id: `file_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      id: `file_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`,
       name: filename,
       path: filename,
       content: '',
@@ -890,7 +892,7 @@ export class FileSystemService {
 
       if (isLast) {
         const newItem: FileItem = {
-          id: `${isFolder ? 'folder' : 'file'}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+          id: `${isFolder ? 'folder' : 'file'}_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`,
           name: part,
           path: accumulatedPath,
           content: isFolder ? '' : initialContent,
@@ -907,7 +909,7 @@ export class FileSystemService {
         let existing = currentChildren.find(item => item.isFolder && item.name === part);
         if (!existing) {
           existing = {
-            id: `folder_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+            id: `folder_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`,
             name: part,
             path: accumulatedPath,
             content: '',
@@ -955,15 +957,27 @@ export class FileSystemService {
   }
 
   async renameFile(id: string, newName: string): Promise<void> {
+    const trimmed = newName.trim();
+    if (!trimmed || trimmed.includes('/') || trimmed.includes('\\') || trimmed === '..' || trimmed === '.') {
+      throw new Error('Invalid file name: name cannot be empty or contain slashes/dots');
+    }
     const file = this.getFileById(id);
     if (file) {
-      file.name = newName;
+      // Check sibling duplicate collision
+      const parentFolder = file.parentId ? this.getFileById(file.parentId) : null;
+      const siblings = parentFolder?.children || this.files;
+      const duplicate = siblings.find(s => s.id !== id && s.name.toLowerCase() === trimmed.toLowerCase());
+      if (duplicate) {
+        throw new Error(`A file or folder named "${trimmed}" already exists in this location.`);
+      }
+
+      file.name = trimmed;
       const parts = file.path.split('/');
-      parts[parts.length - 1] = newName;
+      parts[parts.length - 1] = trimmed;
       const newPath = parts.join('/');
       file.path = newPath;
       if (!file.isFolder) {
-        file.language = getLanguageFromFilename(newName);
+        file.language = getLanguageFromFilename(trimmed);
       } else {
         const updateChildrenPaths = (parent: FileItem, prefix: string) => {
           if (parent.children) {
@@ -1085,7 +1099,7 @@ export class FileSystemService {
 
         if (isLast) {
           currentChildren.push({
-            id: `file_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+            id: `file_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`,
             name: part,
             path: currentPath,
             content: file.content,
@@ -1096,7 +1110,7 @@ export class FileSystemService {
           let folder = currentChildren.find(item => item.isFolder && item.name === part);
           if (!folder) {
             folder = {
-              id: `folder_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+              id: `folder_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`,
               name: part,
               path: currentPath,
               content: '',
@@ -1148,7 +1162,7 @@ export class FileSystemService {
 
           if (isLast) {
             currentChildren.push({
-              id: `file_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+              id: `file_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`,
               name: part,
               path: currentPath,
               content: text,
@@ -1159,7 +1173,7 @@ export class FileSystemService {
             let folder = currentChildren.find(item => item.isFolder && item.name === part);
             if (!folder) {
               folder = {
-                id: `folder_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+                id: `folder_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`,
                 name: part,
                 path: currentPath,
                 content: '',

@@ -54,17 +54,7 @@ export class SecurityService {
   private isWafEnabled: boolean = true;
 
   constructor() {
-    // Seed initial security monitor event
-    this.recordThreat({
-      id: `threat_init_${Date.now()}`,
-      type: 'SSRF',
-      severity: 'high',
-      source: 'System Startup',
-      payload: '169.254.169.254/latest/meta-data',
-      timestamp: new Date().toLocaleTimeString(),
-      action: 'BLOCKED',
-      description: 'Cloud metadata IP access blocked by WAF default rule.'
-    });
+    // Security Monitor initialized
   }
 
   getThreats(): SecurityThreat[] {
@@ -114,7 +104,7 @@ export class SecurityService {
       const lower = url.toLowerCase().trim();
       if (lower.startsWith('javascript:') || lower.startsWith('data:text/html') || lower.startsWith('vbscript:')) {
         const threat: SecurityThreat = {
-          id: `threat_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`,
+          id: `threat_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`,
           type: 'XSS',
           severity: 'critical',
           source,
@@ -143,7 +133,7 @@ export class SecurityService {
 
       if (isPrivateIp && this.isStrictMode) {
         const threat: SecurityThreat = {
-          id: `threat_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`,
+          id: `threat_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`,
           type: 'SSRF',
           severity: 'critical',
           source,
@@ -159,7 +149,7 @@ export class SecurityService {
       // Check explicit blacklist
       if (this.blockedDomains.has(hostname)) {
         const threat: SecurityThreat = {
-          id: `threat_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`,
+          id: `threat_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`,
           type: 'SSRF',
           severity: 'high',
           source,
@@ -174,7 +164,7 @@ export class SecurityService {
 
       return { allowed: true };
     } catch (e: any) {
-      return { allowed: true };
+      return { allowed: false, reason: 'Invalid or malformed URL endpoint' };
     }
   }
 
@@ -289,8 +279,8 @@ export class SecurityService {
    */
   generatePreviewCsp(): string {
     return `<meta http-equiv="Content-Security-Policy" content="
-      default-src 'self' 'unsafe-inline' 'unsafe-eval' blob: data: https://esm.sh https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://unpkg.com https://cdn.tailwindcss.com;
-      script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: https://esm.sh https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://unpkg.com https://cdn.tailwindcss.com;
+      default-src 'self' 'unsafe-inline' blob: data: https://esm.sh https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://unpkg.com https://cdn.tailwindcss.com;
+      script-src 'self' 'unsafe-inline' blob: https://esm.sh https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://unpkg.com https://cdn.tailwindcss.com;
       style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com https://cdn.jsdelivr.net;
       font-src 'self' data: https://fonts.gstatic.com;
       img-src 'self' data: blob: https:;
